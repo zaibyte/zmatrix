@@ -39,6 +39,8 @@
 
 package urpc
 
+import "time"
+
 const (
 	setMethod uint8 = 1
 	getMethod uint8 = 2
@@ -51,5 +53,5 @@ const (
 
 	// DefaultFlushDelay Sacrifice the number of Write() calls to the smallest
 	// possible latency, since it has higher priority in local IPC.
-	DefaultFlushDelay = -1
+	DefaultFlushDelay = time.Duration(-1)
 )
