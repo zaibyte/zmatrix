@@ -138,7 +138,7 @@ type asyncResult struct {
 }
 
 const (
-	DefaultDB = 1
+	DefaultDB = uint32(1)
 	// DefaultClientSendBufferSize is the default size for Client send buffers.
 	DefaultClientSendBufferSize = 64 * 1024
 
