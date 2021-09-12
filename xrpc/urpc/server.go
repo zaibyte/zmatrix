@@ -337,9 +337,6 @@ func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
 	for {
 		err := dec.decodeHeader(headerBuf, rh)
 		if err != nil {
-			if err == orpc.ErrTimeout {
-				continue // Keeping trying to read request header.
-			}
 			xlog.Errorf("failed to read request header from %s: %s", r.RemoteAddr().String(), err)
 			return
 		}
