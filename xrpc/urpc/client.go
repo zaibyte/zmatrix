@@ -247,12 +247,17 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 	}
 
 	err = <-ar.err
-	releaseAsyncResult(ar)
 	if err != nil {
+		releaseAsyncResult(ar)
 		return nil, nil, err
 	}
+	if ar.respValue != nil {
+		v := ar.respValue
+		releaseAsyncResult(ar)
+		return v, PoolBytesCloser{v}, nil
+	}
 
-	return ar.respValue, PoolBytesCloser{ar.respValue}, nil
+	return nil, nil, nil
 }
 
 type PoolBytesCloser struct {
@@ -466,6 +471,8 @@ func (c *Client) clientWriter(w net.Conn, pendingRequests map[uint64]*asyncResul
 		rh.dbID = c.DB
 		if ar.reqValue != nil {
 			rh.valueSize = uint32(len(ar.reqValue))
+		} else {
+			rh.valueSize = 0
 		}
 		msg.header = rh
 		msg.key = ar.reqKey
@@ -476,6 +483,7 @@ func (c *Client) clientWriter(w net.Conn, pendingRequests map[uint64]*asyncResul
 			return
 		}
 		msg.header = nil
+		msg.key = nil
 		msg.value = nil
 	}
 }
