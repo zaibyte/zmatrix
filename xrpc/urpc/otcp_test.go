@@ -143,7 +143,7 @@ func TestClient_Get(t *testing.T) {
 		}
 		val := randVal[:size]
 		binary.LittleEndian.PutUint64(key, uint64(xrand.Uint32n(128*1024)))
-		err := c.Set(val, val)
+		err := c.Set(key, val)
 		if err != nil {
 			t.Fatal(err, size)
 		}
@@ -215,7 +215,7 @@ func TestClient_Get_Concurrency(t *testing.T) {
 		ku := uint64(i)
 		key := make([]byte, 8)
 		binary.LittleEndian.PutUint64(key, ku)
-		err := c.Set(val, val)
+		err := c.Set(key, val)
 		if err != nil {
 			t.Fatal(err, size)
 		}
