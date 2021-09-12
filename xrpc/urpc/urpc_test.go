@@ -142,7 +142,7 @@ func TestClient_Get(t *testing.T) {
 			size = 1
 		}
 		val := randVal[:size]
-		binary.LittleEndian.PutUint64(key, uint64(xrand.Uint32n(128*1024)))
+		binary.LittleEndian.PutUint64(key, uint64(i))
 		err := c.Set(key, val)
 		if err != nil {
 			t.Fatal(err, size)
@@ -173,12 +173,12 @@ func TestClient_Get_Concurrency(t *testing.T) {
 
 		o := make([]byte, len(value))
 		copy(o, value)
-		exp.Store(key, o)
+		exp.Store(binary.LittleEndian.Uint64(key), o)
 		return nil
 	}
 	h.getFn = func(db uint32, key []byte) (value []byte, err error) {
 
-		o, ok := exp.Load(key)
+		o, ok := exp.Load(binary.LittleEndian.Uint64(key))
 		if !ok {
 			return nil, orpc.ErrNotFound
 		}
@@ -236,7 +236,7 @@ func TestClient_Get_Concurrency(t *testing.T) {
 				return
 			}
 
-			v2, ok := exp.Load(key)
+			v2, ok := exp.Load(binary.LittleEndian.Uint64(key))
 			if !ok {
 				errC <- errors.New("not found")
 				closer.Close()
