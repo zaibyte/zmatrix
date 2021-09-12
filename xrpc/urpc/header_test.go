@@ -1,0 +1,72 @@
+// Copyright (c) 2020. Temple3x (temple3x@gmail.com)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright 2017-2019 Lei Ni (nilei81@gmail.com) and other Dragonboat authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// This file contains code derived from Dragonboat.
+// The main logic & codes are copied from Dragonboat.
+
+package urpc
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestRequestHeaderCanBeEncodedAndDecoded(t *testing.T) {
+	r := &reqHeader{
+		method:    1,
+		msgID:     2,
+		valueSize: 4,
+		keySize:   5,
+		dbID:      6,
+	}
+	buf := make([]byte, reqHeaderSize)
+	result := r.encode(buf)
+	assert.Equal(t, reqHeaderSize, len(result))
+
+	rr := &reqHeader{}
+	assert.Nil(t, rr.decode(result))
+
+	assert.Equal(t, r, rr)
+}
+
+func TestRespHeaderCanBeEncodedAndDecoded(t *testing.T) {
+	r := &respHeader{
+		msgID:    2048,
+		errno:    22,
+		bodySize: 1024,
+	}
+	buf := make([]byte, respHeaderSize)
+	result := r.encode(buf)
+	assert.Equal(t, respHeaderSize, len(result))
+
+	rr := &respHeader{}
+	assert.Nil(t, rr.decode(result))
+
+	assert.Equal(t, r, rr)
+}
