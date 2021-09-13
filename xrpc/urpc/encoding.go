@@ -71,13 +71,11 @@ func readAtLeast(r io.Reader, buf []byte, min int) (n int, err error) {
 }
 
 type encoder struct {
-	// bw *bufio.Writer
-	c net.Conn
+	bw *bufio.Writer
 }
 
 func newEncoder(conn net.Conn, bufsize int) *encoder {
-	// return &encoder{bw: bufio.NewWriterSize(conn, bufsize)}
-	return &encoder{c: conn}
+	return &encoder{bw: bufio.NewWriterSize(conn, bufsize)}
 }
 
 type msgBytes struct {
@@ -95,20 +93,20 @@ func (e *encoder) encode(msg *msgBytes, headerBuf []byte) error {
 		hbuf = headerBuf[:respHeaderSize]
 	}
 	_ = msg.header.encode(hbuf)
-	_, err := e.c.Write(hbuf)
+	_, err := e.bw.Write(hbuf)
 	if err != nil {
 		return err
 	}
 
 	if msg.key != nil {
-		_, err = e.c.Write(msg.key)
+		_, err = e.bw.Write(msg.key)
 		if err != nil {
 			return err
 		}
 	}
 
 	if msg.value != nil {
-		_, err = e.c.Write(msg.value)
+		_, err = e.bw.Write(msg.value)
 		if err != nil {
 			return err
 		}
@@ -126,20 +124,20 @@ func (e *encoder) encodeBytesPool(msg *msgBytes, headerBuf []byte) error {
 		hbuf = headerBuf[:respHeaderSize]
 	}
 	_ = msg.header.encode(hbuf)
-	_, err := e.c.Write(hbuf)
+	_, err := e.bw.Write(hbuf)
 	if err != nil {
 		return err
 	}
 
 	if msg.key != nil {
-		_, err = e.c.Write(msg.key)
+		_, err = e.bw.Write(msg.key)
 		if err != nil {
 			return err
 		}
 	}
 
 	if msg.value != nil {
-		_, err = e.c.Write(msg.value)
+		_, err = e.bw.Write(msg.value)
 		xbytes.PutBytes(msg.value)
 		if err != nil {
 			return err
@@ -150,5 +148,5 @@ func (e *encoder) encodeBytesPool(msg *msgBytes, headerBuf []byte) error {
 }
 
 func (e *encoder) flush() error {
-	return nil
+	return e.bw.Flush()
 }
