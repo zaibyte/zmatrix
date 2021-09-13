@@ -15,13 +15,21 @@ import (
 	"github.com/elastic/go-hdrhistogram"
 )
 
-func Test_UDS_Lat(t *testing.T) {
+func Test_Lat_UDS(t *testing.T) {
 
 	// if !xtest.IsPropEnabled() {
 	// 	t.Skip("skip prop testing")
 	// }
 
 	testLatency(true, getRandomAddr(), "", 128, 100000)
+}
+
+func Test_Lat_TCP(t *testing.T) {
+
+	// if !xtest.IsPropEnabled() {
+	// 	t.Skip("skip prop testing")
+	// }
+
 	testLatency(false, "", getRandomTCPAddr(), 128, 100000)
 }
 
@@ -76,7 +84,7 @@ func server(isUDS bool, unixAddress, tcpAddress string, numPing, msgBytes int) {
 
 func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings int) {
 
-	go server(isUDS, unixAddress, tcpAddress, msgBytes, numPings)
+	go server(isUDS, unixAddress, tcpAddress, numPings, msgBytes)
 	time.Sleep(50 * time.Millisecond)
 
 	// This is the client code in the main goroutine.
