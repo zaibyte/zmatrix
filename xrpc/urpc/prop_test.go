@@ -115,7 +115,7 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
 func printLat(name string, lats *hdrhistogram.Histogram, cost int64) {
 	fmt.Println(fmt.Sprintf("%s min: %d, avg: %.2f, max: %d, iops: %.2f",
-		name, lats.Min(), lats.Mean(), lats.Max(), float64(lats.TotalCount())/float64(cost)))
+		name, lats.Min(), lats.Mean(), lats.Max(), float64(lats.TotalCount())/(float64(cost)/float64(time.Second))))
 	fmt.Println("percentiles (nsec):")
 	fmt.Print(fmt.Sprintf(
 		"|  1.00th=[%d],  5.00th=[%d], 10.00th=[%d], 20.00th=[%d],\n"+
