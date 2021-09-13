@@ -357,13 +357,7 @@ func (c *Client) clientHandler() {
 
 func (c *Client) clientHandleConnection(conn net.Conn) {
 
-	err := sendHandshake(conn)
-	if err != nil {
-		xlog.Errorf("failed to handshake to: %s: %s", c.Addr, err)
-		_ = conn.Close()
-		return
-	}
-	xlog.Debugf("handshake ok to: %s", c.Addr)
+	var err error
 
 	stopChan := make(chan struct{})
 
@@ -398,15 +392,6 @@ func (c *Client) clientHandleConnection(conn net.Conn) {
 		default: // Avoiding blocking.
 		}
 	}
-}
-
-func sendHandshake(conn net.Conn) error {
-
-	_, err := conn.Write(handshake[:])
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (c *Client) clientWriter(w net.Conn, pendingRequests map[uint64]*asyncResult, pendingRequestsLock *sync.Mutex,

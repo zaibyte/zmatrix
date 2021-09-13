@@ -45,8 +45,6 @@ import (
 	"g.tesamc.com/IT/zmatrix/xrpc"
 )
 
-var handshake = [1]byte{0x1}
-
 // NewClient creates a client connecting UNIX
 // to the server listening to the given addr.
 //

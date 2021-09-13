@@ -234,36 +234,6 @@ func (s *Server) serverHandler() {
 func (s *Server) serverHandleConnection(conn net.Conn) {
 	defer s.stopWg.Done()
 
-	var stopping atomic.Value
-	var err error
-
-	okHandshake := make(chan bool, 1)
-	go func() {
-		var buf [1]byte
-		if _, err = conn.Read(buf[:]); err != nil {
-			if stopping.Load() == nil {
-				xlog.Errorf("failed to reading handshake from client: %s: %s", conn.RemoteAddr().String(), err)
-			}
-		}
-		okHandshake <- buf[0] == 1
-	}()
-
-	select {
-	case ok := <-okHandshake:
-		if !ok || err != nil {
-			_ = conn.Close()
-			return
-		}
-	case <-s.serverStopChan:
-		stopping.Store(true)
-		_ = conn.Close()
-		return
-	case <-time.After(10 * time.Second):
-		xlog.Errorf("cannot obtain handshake from client:%s during 10s", conn.RemoteAddr().String())
-		_ = conn.Close()
-		return
-	}
-
 	responsesChan := make(chan *serverMessage, s.PendingResponses)
 	stopChan := make(chan struct{})
 
