@@ -43,7 +43,7 @@ func TestClient_Set_Latency(t *testing.T) {
 
 	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
 
-	n := 1000000
+	n := 100000
 	jobStart := tsc.UnixNano()
 	for i := 0; i < n; i++ {
 		start := tsc.UnixNano()
@@ -89,7 +89,7 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
 	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
 
-	n := 1000000
+	n := 100000
 	wg := new(sync.WaitGroup)
 	wg.Add(4)
 
