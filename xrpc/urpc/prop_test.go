@@ -3,6 +3,7 @@ package urpc
 import (
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,52 @@ import (
 )
 
 func TestClient_Set_Latency(t *testing.T) {
+
+	// if !xtest.IsPropEnabled() {
+	// 	t.Skip("skip prop testing")
+	// }
+
+	addr := getRandomAddr()
+
+	s := NewServer(addr, nopHandler())
+
+	if err := s.Start(); err != nil {
+		t.Fatalf("cannot start server: %s", err)
+	}
+	defer s.Stop(nil)
+
+	c := newTestClient(addr)
+	c.Conns = 1
+
+	err := c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop(nil)
+
+	value := make([]byte, 1024)
+	rand.Read(value)
+	key := make([]byte, 8)
+	rand.Read(key)
+
+	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
+
+	n := 1000000
+	jobStart := tsc.UnixNano()
+	for i := 0; i < n; i++ {
+		start := tsc.UnixNano()
+		err := c.Set(key, value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = lat.RecordValue(tsc.UnixNano() - start)
+	}
+	cost := tsc.UnixNano() - jobStart
+
+	printLat("set", lat, cost)
+}
+
+func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
 	// if !xtest.IsPropEnabled() {
 	// 	t.Skip("skip prop testing")
@@ -43,21 +90,32 @@ func TestClient_Set_Latency(t *testing.T) {
 	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
 
 	n := 1000000
-	for i := 0; i < n; i++ {
-		start := tsc.UnixNano()
-		err := c.Set(key, value)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = lat.RecordValue(tsc.UnixNano() - start)
-	}
+	wg := new(sync.WaitGroup)
+	wg.Add(4)
 
-	printLat("set", lat)
+	jobStart := tsc.UnixNano()
+	for j := 0; j < 4; j++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < n; i++ {
+				start := tsc.UnixNano()
+				err := c.Set(key, value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = lat.RecordValueAtomic(tsc.UnixNano() - start)
+			}
+		}()
+	}
+	wg.Wait()
+	cost := tsc.UnixNano() - jobStart
+
+	printLat("set", lat, cost)
 }
 
-func printLat(name string, lats *hdrhistogram.Histogram) {
-	fmt.Println(fmt.Sprintf("%s min: %d, avg: %.2f, max: %d",
-		name, lats.Min(), lats.Mean(), lats.Max()))
+func printLat(name string, lats *hdrhistogram.Histogram, cost int64) {
+	fmt.Println(fmt.Sprintf("%s min: %d, avg: %.2f, max: %d, iops: %.2f",
+		name, lats.Min(), lats.Mean(), lats.Max(), float64(lats.TotalCount())/float64(cost)))
 	fmt.Println("percentiles (nsec):")
 	fmt.Print(fmt.Sprintf(
 		"|  1.00th=[%d],  5.00th=[%d], 10.00th=[%d], 20.00th=[%d],\n"+
