@@ -95,8 +95,13 @@ func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings 
 	}
 
 	buf := make([]byte, msgBytes)
-	t1 := time.Now()
+
+	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
+
+	t1 := tsc.UnixNano()
 	for n := 0; n < numPings; n++ {
+
+		start := tsc.UnixNano()
 		nwrite, err := conn.Write(buf)
 		if err != nil {
 			log.Fatal(err)
@@ -111,14 +116,11 @@ func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings 
 		if nread != msgBytes {
 			log.Fatalf("bad nread = %d", nread)
 		}
+		lat.RecordValue(tsc.UnixNano() - start)
 	}
-	elapsed := time.Since(t1)
+	elapsed := tsc.UnixNano() - t1
 
-	totalpings := int64(numPings * 2)
-	fmt.Println("Client done")
-	fmt.Printf("%d pingpongs took %d ns; avg. latency %d ns\n",
-		totalpings, elapsed.Nanoseconds(),
-		elapsed.Nanoseconds()/totalpings)
+	printLat(fmt.Sprintf("ping-pong with: %d bytes", msgBytes), lat, elapsed)
 
 	time.Sleep(50 * time.Millisecond)
 }
