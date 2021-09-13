@@ -93,6 +93,11 @@ func getRandomAddr() string {
 	return fmt.Sprintf("./test-%d.sock", xrand.Uint32n(20000)+10000)
 }
 
+func getRandomTCPAddr() string {
+	rand.Seed(tsc.UnixNano())
+	return fmt.Sprintf("127.0.0.1:%d", rand.Intn(20000)+10000)
+}
+
 func newTestClient(addr string) *Client {
 	c := NewClient(addr, 0)
 	c.CloseWait = time.Microsecond

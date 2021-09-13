@@ -2,7 +2,10 @@ package urpc
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
+	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +14,106 @@ import (
 
 	"github.com/elastic/go-hdrhistogram"
 )
+
+func Test_UDS_Lat(t *testing.T) {
+
+	// if !xtest.IsPropEnabled() {
+	// 	t.Skip("skip prop testing")
+	// }
+
+	testLatency(true, getRandomAddr(), "", 128, 100000)
+	testLatency(false, "", getRandomTCPAddr(), 128, 100000)
+}
+
+func domainAndAddress(isUDS bool, unixAddress, tcpAddress string) (string, string) {
+	if isUDS {
+		return "unix", unixAddress
+	} else {
+		return "tcp", tcpAddress
+	}
+}
+
+func server(isUDS bool, unixAddress, tcpAddress string, numPing, msgBytes int) {
+	if isUDS {
+		if err := os.RemoveAll(unixAddress); err != nil {
+			panic(err)
+		}
+	}
+
+	domain, address := domainAndAddress(isUDS, unixAddress, tcpAddress)
+	l, err := net.Listen(domain, address)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer l.Close()
+
+	conn, err := l.Accept()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	buf := make([]byte, msgBytes)
+	for n := 0; n < numPing; n++ {
+		nread, err := conn.Read(buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if nread != msgBytes {
+			log.Fatalf("bad nread = %d", nread)
+		}
+		nwrite, err := conn.Write(buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if nwrite != msgBytes {
+			log.Fatalf("bad nwrite = %d", nwrite)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+}
+
+func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings int) {
+
+	go server(isUDS, unixAddress, tcpAddress, msgBytes, numPings)
+	time.Sleep(50 * time.Millisecond)
+
+	// This is the client code in the main goroutine.
+	domain, address := domainAndAddress(isUDS, unixAddress, tcpAddress)
+	conn, err := net.Dial(domain, address)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	buf := make([]byte, msgBytes)
+	t1 := time.Now()
+	for n := 0; n < numPings; n++ {
+		nwrite, err := conn.Write(buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if nwrite != msgBytes {
+			log.Fatalf("bad nwrite = %d", nwrite)
+		}
+		nread, err := conn.Read(buf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if nread != msgBytes {
+			log.Fatalf("bad nread = %d", nread)
+		}
+	}
+	elapsed := time.Since(t1)
+
+	totalpings := int64(numPings * 2)
+	fmt.Println("Client done")
+	fmt.Printf("%d pingpongs took %d ns; avg. latency %d ns\n",
+		totalpings, elapsed.Nanoseconds(),
+		elapsed.Nanoseconds()/totalpings)
+
+	time.Sleep(50 * time.Millisecond)
+}
 
 func TestClient_Set_Latency(t *testing.T) {
 
