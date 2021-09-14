@@ -35,6 +35,12 @@ import (
 	"encoding/binary"
 )
 
+const (
+	setMethod      uint8 = 1
+	getMethod      uint8 = 2
+	setBatchMethod uint8 = 3
+)
+
 type header interface {
 	encode(b []byte) []byte
 	decode(b []byte) error

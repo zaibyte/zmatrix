@@ -39,11 +39,12 @@
 
 package urpc
 
-import "time"
+import (
+	"encoding/binary"
+	"io"
+	"time"
 
-const (
-	setMethod uint8 = 1
-	getMethod uint8 = 2
+	"g.tesamc.com/IT/zaipkg/xbytes"
 )
 
 const (
@@ -55,3 +56,61 @@ const (
 	// possible latency, since it has higher priority in local IPC.
 	DefaultFlushDelay = time.Duration(-1)
 )
+
+// compactSetBatchReq compacts keys & values into one byte slice for sending to server.
+// len(keys) must equal to len(values).
+//
+// Caller has the responsibility to put return value back into bytes pool by invoke Close().
+func compactSetBatchReq(keys, values [][]byte) ([]byte, io.Closer) {
+
+	cnt := len(keys)
+	keysLen, valsLen := 0, 0
+	for _, key := range keys {
+		keysLen += len(key)
+	}
+	for _, val := range values {
+		valsLen += len(val)
+	}
+
+	vLen := 4 + 2*cnt + 4*cnt + keysLen + valsLen
+	v := xbytes.GetBytes(vLen)
+
+	binary.BigEndian.PutUint32(v[:4], uint32(cnt))
+
+	offset := 4 + 2*cnt + 4*cnt
+	for i, key := range keys {
+		kl := len(key)
+		binary.BigEndian.PutUint16(v[4+i*2:4+i*2+2], uint16(kl))
+		copy(v[offset:], key)
+		offset += kl
+	}
+	for i, v0 := range values {
+		vl := len(v0)
+		binary.BigEndian.PutUint32(v[4+2*cnt+i*4:4+2*cnt+i*4+4], uint32(vl))
+		copy(v[offset:], v0)
+		offset += vl
+	}
+
+	return v, PoolBytesCloser{v}
+}
+
+func extraSetBatchReq(c []byte) (keys, values [][]byte) {
+
+	cnt := int(binary.BigEndian.Uint32(c[:4]))
+
+	keys = make([][]byte, cnt)
+	values = make([][]byte, cnt)
+
+	offset := 4 + 2*cnt + 4*cnt
+	for i := range keys {
+		kl := int(binary.BigEndian.Uint16(c[4+i*2 : 4+i*2+2]))
+		keys[i] = c[offset : offset+kl]
+		offset += kl
+	}
+	for i := range values {
+		vl := int(binary.BigEndian.Uint32(c[4+cnt*2+i*4 : 4+cnt*4+i*4+4]))
+		values[i] = c[offset : offset+vl]
+		offset += vl
+	}
+	return
+}

@@ -316,7 +316,7 @@ func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
 		m.msgID = rh.msgID
 		m.dbID = rh.dbID
 
-		n := int(rh.keySize) + int(rh.valueSize) // At least has key.
+		n := int(rh.keySize) + int(rh.valueSize) // At least has key or value.
 		body := xbytes.GetBytes(n)
 		err = dec.decodeBody(body, n)
 		if err != nil {
@@ -326,7 +326,9 @@ func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
 			serverMessagePool.Put(m)
 			return
 		}
-		m.reqKey = body[:rh.keySize]
+		if rh.keySize != 0 {
+			m.reqKey = body[:rh.keySize]
+		}
 		if rh.valueSize != 0 {
 			m.reqValue = body[rh.keySize:]
 		}
@@ -356,7 +358,11 @@ func (s *Server) serveRequest(responsesChan chan<- *serverMessage, stopChan <-ch
 		m.err = err
 	}
 
-	xbytes.PutBytes(m.reqKey)
+	if m.reqKey != nil {
+		xbytes.PutBytes(m.reqKey)
+	} else {
+		xbytes.PutBytes(m.reqValue) // If key is nil, must be setBatch.
+	}
 
 	m.reqKey = nil
 	m.reqValue = nil
@@ -388,6 +394,11 @@ func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqVa
 	}
 	if method == setMethod {
 		err = s.Handler.Set(dbID, reqKey, reqValue)
+		return nil, err
+	}
+	if method == setBatchMethod {
+		keys, values := extraSetBatchReq(reqValue)
+		err = s.Handler.SetBatch(dbID, keys, values)
 		return nil, err
 	}
 

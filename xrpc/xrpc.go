@@ -6,7 +6,7 @@ import (
 
 // Client is the xRPC client.
 type Client interface {
-	db.KV
+	db.KVer
 	StartStoper
 }
 
@@ -25,4 +25,5 @@ type StartStoper interface {
 type ServerHandler interface {
 	Set(db uint32, key, value []byte) error
 	Get(db uint32, key []byte) (value []byte, err error)
+	SetBatch(db uint32, keys, values [][]byte) error
 }

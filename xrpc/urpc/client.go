@@ -48,6 +48,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"g.tesamc.com/IT/zaipkg/xerrors"
+
 	"g.tesamc.com/IT/zaipkg/xbytes"
 
 	"g.tesamc.com/IT/zmatrix/xrpc"
@@ -223,6 +225,19 @@ func (c *Client) Set(key, value []byte) error {
 	return err
 }
 
+func (c *Client) SetBatch(keys, values [][]byte) error {
+	kCnt := len(keys)
+	vCnt := len(values)
+	if kCnt != vCnt {
+		return xerrors.WithMessage(orpc.ErrBadRequest, "keys & values count must be equal for set batch")
+	}
+
+	value, closer := compactSetBatchReq(keys, values)
+	defer closer.Close()
+	_, _, err := c.call(setBatchMethod, nil, value)
+	return err
+}
+
 func (c *Client) Get(key []byte) ([]byte, io.Closer, error) {
 
 	return c.call(getMethod, key, nil)
@@ -281,7 +296,7 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, er
 	ar.reqKey = key
 	ar.err = make(chan error)
 
-	if method == setMethod {
+	if method == setMethod || method == setBatchMethod {
 		ar.reqValue = value
 	}
 
