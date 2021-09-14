@@ -28,15 +28,15 @@ require (
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/golang/snappy v0.0.3-0.20201103224600-674baa8c7fc3 // indirect
+	github.com/golang/snappy v0.0.2-0.20190904063534-ff6b7dc882cf // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/gyuho/linux-inspect v0.0.0-20180929231013-a492bfc5f12a // indirect
 	github.com/jaypipes/ghw v0.8.0 // indirect
 	github.com/julienschmidt/httprouter v1.2.0 // indirect
 	github.com/klauspost/compress v1.11.7 // indirect
 	github.com/kr/pretty v0.2.1 // indirect
-	github.com/kr/text v0.2.0 // indirect
-	github.com/lni/goutils v1.3.0 // indirect
+	github.com/kr/text v0.1.0 // indirect
+	github.com/lni/goutils v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
@@ -46,7 +46,7 @@ require (
 	github.com/zaibyte/nanozap v0.0.6 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
-	golang.org/x/exp v0.0.0-20201210212021-a20c86df00b4 // indirect
+	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
 	golang.org/x/sys v0.0.0-20210514084401-e8d321eab015 // indirect
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
