@@ -66,8 +66,9 @@ func init() {
 }
 
 type testHandler struct {
-	setFn func(db uint32, key, value []byte) error
-	getFn func(db uint32, key []byte) (value []byte, err error)
+	setFn      func(db uint32, key, value []byte) error
+	getFn      func(db uint32, key []byte) (value []byte, err error)
+	setBatchFn func(db uint32, keys, values [][]byte) error
 }
 
 func (h *testHandler) Set(db uint32, key, value []byte) error {
@@ -78,6 +79,10 @@ func (h *testHandler) Get(db uint32, key []byte) (value []byte, err error) {
 	return h.getFn(db, key)
 }
 
+func (h *testHandler) SetBatch(db uint32, keys, values [][]byte) error {
+	return h.setBatchFn(db, keys, values)
+}
+
 func nopHandler() *testHandler {
 	return &testHandler{
 		setFn: func(db uint32, key, value []byte) error {
@@ -85,6 +90,9 @@ func nopHandler() *testHandler {
 		},
 		getFn: func(db uint32, key []byte) (value []byte, err error) {
 			return nil, nil
+		},
+		setBatchFn: func(db uint32, keys, values [][]byte) error {
+			return nil
 		},
 	}
 }
@@ -125,6 +133,12 @@ func TestClient_Get(t *testing.T) {
 		copy(value, o)
 		return
 	}
+	h.setBatchFn = func(db uint32, keys, values [][]byte) error {
+		for i := range keys {
+			_ = h.setFn(db, keys[i], values[i])
+		}
+		return nil
+	}
 
 	s := NewServer(addr, h)
 	if err := s.Start(); err != nil {
@@ -150,8 +164,30 @@ func TestClient_Get(t *testing.T) {
 		binary.LittleEndian.PutUint64(key, uint64(i))
 		err := c.Set(key, val)
 		if err != nil {
-			t.Fatal(err, size)
+			t.Fatal(err)
 		}
+	}
+	batchCnt := 16
+	keys := make([][]byte, batchCnt)
+	values := make([][]byte, batchCnt)
+
+	for i := 0; i < batchCnt; i++ {
+		k := make([]byte, 8)
+		binary.BigEndian.PutUint64(k, uint64(i))
+
+		vl := xrand.Uint32n(200)
+		if vl == 0 {
+			vl = 2
+		}
+		value := make([]byte, vl)
+		rand.Read(value)
+
+		keys[i] = k
+		values[i] = value
+	}
+	err = c.SetBatch(keys, values)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	for k, v := range exp {
