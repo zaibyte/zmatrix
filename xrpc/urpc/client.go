@@ -304,7 +304,8 @@ func (c *Client) handle() {
 			continue
 		}
 
-		idx := (c.nextConn + 1) % c.Conns
+		c.nextConn = c.nextConn + 1
+		idx := c.nextConn % c.Conns
 		conn := c.connPool[idx]
 		worker := c.connWorkers[idx]
 		ar := (*AsyncResult)(d)
@@ -332,7 +333,7 @@ func (c *Client) createWorker() *ants.PoolWithFunc {
 			reqH.valueSize = 0
 		}
 
-		err := encodeToConn(ar.Conn, reqH, ar.ReqKey, ar.RespValue, true)
+		err := encodeToConn(ar.Conn, reqH, ar.ReqKey, ar.ReqValue, true)
 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
 			ar.Err <- err
 			return
