@@ -134,7 +134,7 @@ func (s *Server) Start() error {
 		s.Concurrency = DefaultConcurrency
 	}
 	if s.PendingResponses <= 0 {
-		s.PendingResponses = DefaultPendingMessages
+		s.PendingResponses = int(DefaultPendingMessages)
 	}
 	if s.SendBufferSize <= 0 {
 		s.SendBufferSize = DefaultServerSendBufferSize
