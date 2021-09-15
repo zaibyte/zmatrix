@@ -62,6 +62,9 @@ func server(isUDS bool, unixAddress, tcpAddress string, numPing, msgBytes int) {
 	defer conn.Close()
 
 	buf := make([]byte, msgBytes)
+
+	fakeResp := make([]byte, respHeaderSize)
+
 	for n := 0; n < numPing; n++ {
 		nread, err := conn.Read(buf)
 		if err != nil {
@@ -70,11 +73,11 @@ func server(isUDS bool, unixAddress, tcpAddress string, numPing, msgBytes int) {
 		if nread != msgBytes {
 			log.Fatalf("bad nread = %d", nread)
 		}
-		nwrite, err := conn.Write(buf)
+		nwrite, err := conn.Write(fakeResp)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if nwrite != msgBytes {
+		if nwrite != respHeaderSize {
 			log.Fatalf("bad nwrite = %d", nwrite)
 		}
 	}
@@ -133,12 +136,16 @@ func TestClient_Set_Latency(t *testing.T) {
 
 	addr := getRandomAddr()
 
-	s := NewServer(addr, nopHandler())
+	// s := NewServer(addr, nopHandler())
+	//
+	// if err := s.Start(); err != nil {
+	// 	t.Fatalf("cannot start server: %s", err)
+	// }
+	// defer s.Stop(nil)
 
-	if err := s.Start(); err != nil {
-		t.Fatalf("cannot start server: %s", err)
-	}
-	defer s.Stop(nil)
+	n := 100000
+	go server(true, addr, "", n, 1024+8+19)
+	time.Sleep(50 * time.Millisecond)
 
 	c := newTestClient(addr)
 	c.Conns = 1
@@ -156,7 +163,6 @@ func TestClient_Set_Latency(t *testing.T) {
 
 	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
 
-	n := 100000
 	jobStart := tsc.UnixNano()
 	for i := 0; i < n; i++ {
 		start := tsc.UnixNano()
