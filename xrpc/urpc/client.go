@@ -94,22 +94,6 @@ type Client struct {
 	// Default is DefaultPendingMessages.
 	PendingRequests uint64
 
-	// Size of send buffer per each underlying connection in bytes.
-	// Default value is DefaultClientSendBufferSize.
-	SendBufferSize int
-
-	// Size of recv buffer per each underlying connection in bytes.
-	// Default value is DefaultClientRecvBufferSize.
-	RecvBufferSize int
-
-	// Delay between request flushes.
-	//
-	// Negative values lead to immediate requests' sending to the server
-	// without their buffering. This minimizes rpc latency at the cost
-	// of higher CPU and network usage.
-	//
-	// Default value is DefaultFlushDelay.
-	FlushDelay time.Duration
 	NoReqSleep time.Duration
 
 	// The client calls this callback when it needs new connection
@@ -118,9 +102,6 @@ type Client struct {
 	//
 	// By default it returns UNIX connections established to the Client.Addr.
 	Dial DialFunc
-
-	// CloseWait is the wait duration for Stop.
-	CloseWait time.Duration
 
 	nextConn  uint64
 	reqQueues []*limitring.Ring
@@ -146,16 +127,9 @@ type asyncResult struct {
 
 const (
 	DefaultDB = uint32(1)
-	// DefaultClientSendBufferSize is the default size for Client send buffers.
-	DefaultClientSendBufferSize = 64 * 1024
-
-	// DefaultClientRecvBufferSize is the default size for Client receive buffers.
-	DefaultClientRecvBufferSize = 64 * 1024
 
 	// DefaultClientConns is the default connection numbers for Client.
-	DefaultClientConns = 16
-
-	DefaultCloseWait = 3 * time.Second
+	DefaultClientConns = uint64(16)
 )
 
 // Start starts rpc client. Establishes connection to the server on Client.Addr.
@@ -168,10 +142,7 @@ func (c *Client) Start() error {
 
 	config.Adjust(&c.DB, DefaultDB)
 	config.Adjust(&c.PendingRequests, DefaultPendingMessages)
-	config.Adjust(&c.SendBufferSize, DefaultClientSendBufferSize)
-	config.Adjust(&c.RecvBufferSize, DefaultClientRecvBufferSize)
 	config.Adjust(&c.Conns, DefaultClientConns)
-	config.Adjust(&c.CloseWait, DefaultCloseWait)
 	config.Adjust(&c.NoReqSleep, DefaultNoReqSleep)
 
 	c.PendingRequests = xmath.NextPower2(c.PendingRequests)

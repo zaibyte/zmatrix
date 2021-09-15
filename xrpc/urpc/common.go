@@ -52,7 +52,7 @@ const (
 	// handled by Client and Server.
 	//
 	// It's meaningless for setting it too big for unix domain socket.
-	DefaultPendingMessages = 4096
+	DefaultPendingMessages = uint64(4096)
 
 	// DefaultFlushDelay Sacrifice the number of Write() calls to the smallest
 	// possible latency, since it has higher priority in local IPC.

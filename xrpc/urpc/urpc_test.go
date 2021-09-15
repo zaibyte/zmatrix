@@ -47,7 +47,6 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
-	"time"
 
 	"g.tesamc.com/IT/zaipkg/directio"
 	"g.tesamc.com/IT/zaipkg/orpc"
@@ -108,7 +107,6 @@ func getRandomTCPAddr() string {
 
 func newTestClient(addr string) *Client {
 	c := NewClient(addr, 0)
-	c.CloseWait = time.Microsecond
 	return c
 }
 
