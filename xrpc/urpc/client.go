@@ -47,6 +47,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/panjf2000/ants/v2"
+
 	"g.tesamc.com/IT/zaipkg/xmath"
 
 	"g.tesamc.com/IT/zaipkg/limitring"
@@ -103,26 +105,29 @@ type Client struct {
 	// By default it returns UNIX connections established to the Client.Addr.
 	Dial DialFunc
 
-	nextConn  uint64
-	reqQueues []*limitring.Ring
-	connPool  []net.Conn
+	nextConn    uint64
+	reqQueue    *limitring.Ring
+	connPool    []net.Conn
+	connWorkers []*ants.PoolWithFunc
 
-	requestsChan chan *asyncResult
+	requestsChan chan *AsyncResult
 
 	wg sync.WaitGroup
 }
 
 var _client xrpc.Client = new(Client)
 
-// asyncResult is a result returned from Client.callAsync().
-type asyncResult struct {
-	method   uint8
-	reqKey   []byte
-	reqValue []byte
+// AsyncResult is a result returned from Client.callAsync().
+type AsyncResult struct {
+	Method   uint8
+	ReqKey   []byte
+	ReqValue []byte
 
-	respValue []byte
+	RespValue []byte
 
-	err chan error
+	Conn net.Conn
+
+	Err chan error
 }
 
 const (
@@ -151,11 +156,10 @@ func (c *Client) Start() error {
 	// to allow the first conn to use AddUint64
 	// and still have a beginning index of 0
 	c.nextConn = ^c.nextConn
-	c.reqQueues = make([]*limitring.Ring, c.Conns)
-	for i := range c.reqQueues {
-		c.reqQueues[i] = limitring.New(c.PendingRequests)
-	}
+	c.reqQueue = limitring.New(c.PendingRequests)
+
 	c.connPool = make([]net.Conn, c.Conns)
+	c.connWorkers = make([]*ants.PoolWithFunc, c.Conns)
 
 	if c.Dial == nil {
 		c.Dial = defaultDial
@@ -168,11 +172,12 @@ func (c *Client) Start() error {
 			return err
 		}
 		c.connPool[i] = conn
+		c.connWorkers[i] = c.createWorker()
 	}
 
 	for i := uint64(0); i < c.Conns; i++ {
 		c.wg.Add(1)
-		go c.handle(int(i))
+		go c.handle()
 	}
 
 	atomic.StoreInt64(&c.isRunning, 1)
@@ -184,6 +189,12 @@ func (c *Client) closeAllConn() {
 	for _, co := range c.connPool {
 		if co != nil {
 			_ = co.Close()
+		}
+	}
+
+	for _, w := range c.connWorkers {
+		if w != nil {
+			w.Release()
 		}
 	}
 }
@@ -233,61 +244,54 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 		return nil, nil, orpc.ErrServiceClosed
 	}
 
-	var ar *asyncResult
+	var ar *AsyncResult
 	var err error
 	if ar, err = c.callAsync(method, key, value); err != nil {
 		return nil, nil, err
 	}
 
-	err = <-ar.err
+	err = <-ar.Err
 	if err != nil {
-		releaseAsyncResult(ar)
+		ReleaseAsyncResult(ar)
 		return nil, nil, err
 	}
-	if ar.respValue != nil {
-		v := ar.respValue
-		releaseAsyncResult(ar)
+	if ar.RespValue != nil {
+		v := ar.RespValue
+		ReleaseAsyncResult(ar)
 		return v, PoolBytesCloser{v}, nil
 	}
 
 	return nil, nil, nil
 }
 
-func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, err error) {
+func (c *Client) callAsync(method uint8, key, value []byte) (ar *AsyncResult, err error) {
 
 	if method != setMethod && method != getMethod {
 		return nil, orpc.ErrNotImplemented
 	}
 
-	ar = acquireAsyncResult()
+	ar = AcquireAsyncResult()
 
-	ar.method = method
-	ar.reqKey = key
-	ar.err = make(chan error)
+	ar.Method = method
+	ar.ReqKey = key
+	ar.Err = make(chan error)
 
 	if method == setMethod || method == setBatchMethod {
-		ar.reqValue = value
+		ar.ReqValue = value
 	}
 
-	err = c.dispatch(ar)
+	err = c.reqQueue.Push(unsafe.Pointer(ar))
 	if err != nil {
-		releaseAsyncResult(ar)
+		ReleaseAsyncResult(ar)
 		return nil, err // Queue is full.
 	}
 	return ar, nil
 }
 
-func (c *Client) handle(connIdx int) {
+func (c *Client) handle() {
 	defer c.wg.Done()
 
-	q := c.reqQueues[connIdx]
-	conn := c.connPool[connIdx]
-
-	msg := new(msgBytes)
-	reqH := new(reqHeader)
-	respH := new(respHeader)
-
-	respHBuf := make([]byte, respHeaderSize)
+	q := c.reqQueue
 
 	for {
 		if atomic.LoadInt64(&c.isRunning) != 1 {
@@ -300,99 +304,136 @@ func (c *Client) handle(connIdx int) {
 			continue
 		}
 
-		ar := (*asyncResult)(d)
-		reqH.method = ar.method
-		reqH.keySize = uint16(len(ar.reqKey))
+		idx := (c.nextConn + 1) % c.Conns
+		conn := c.connPool[idx]
+		worker := c.connWorkers[idx]
+		ar := (*AsyncResult)(d)
+		ar.Conn = conn
+		_ = worker.Invoke(ar)
+
+	}
+}
+
+func (c *Client) createWorker() *ants.PoolWithFunc {
+
+	w, _ := ants.NewPoolWithFunc(1, func(i interface{}) {
+
+		ar := i.(*AsyncResult)
+
+		reqH := AcquireReqHeader()
+		defer ReleaseReqHeader(reqH)
+
+		reqH.method = ar.Method
+		reqH.keySize = uint16(len(ar.ReqKey))
 		reqH.dbID = c.DB
-		if ar.reqValue != nil {
-			reqH.valueSize = uint32(len(ar.reqValue))
+		if ar.ReqValue != nil {
+			reqH.valueSize = uint32(len(ar.ReqValue))
 		} else {
 			reqH.valueSize = 0
 		}
-		msg.header = reqH
-		msg.key = ar.reqKey
-		msg.value = ar.reqValue
 
-		err := encodeToConn(conn, msg, true)
+		err := encodeToConn(ar.Conn, reqH, ar.ReqKey, ar.RespValue, true)
 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
-			ar.err <- err
-			xlog.Errorf("failed to send request to: %s: %s", c.Addr, err)
-			resetMsg(msg)
-			continue
+			ar.Err <- err
+			return
 		}
 
-		resetMsg(msg)
+		respHBuf := xbytes.GetBytes(respHeaderSize)
+		defer xbytes.PutBytes(respHBuf)
 
-		_, err = readAtLeast(conn, respHBuf, respHeaderSize)
+		_, err = readAtLeast(ar.Conn, respHBuf, respHeaderSize)
 		if err != nil {
-			ar.err <- err
-			xlog.Errorf("failed to read request header from %s: %s", conn.RemoteAddr().String(), err)
-			continue
+			ar.Err <- err
+			return
 		}
 
+		respH := AcquireRespHeader()
+		defer ReleaseRespHeader(respH)
 		_ = respH.decode(respHBuf)
 
 		errno := respH.errno
 		if errno != 0 { // Ignore response if any error. And the response must be nil.
-			ar.err <- orpc.Errno(errno).ToErr()
-			continue
+			ar.Err <- orpc.Errno(errno).ToErr()
+			return
 		}
 
 		n := respH.bodySize
 		if n == 0 {
-			ar.err <- nil
-			continue
+			ar.Err <- nil
+			return
 		}
 
 		if n != 0 {
-			ar.respValue = xbytes.GetBytes(int(n))
-			_, err = readAtLeast(conn, ar.respValue, int(n))
+			ar.RespValue = xbytes.GetBytes(int(n))
+			_, err = readAtLeast(ar.Conn, ar.RespValue, int(n))
 			if err != nil { // If failed to read body, the next read header will be failed too, so just return.
-				xbytes.PutBytes(ar.respValue)
-				xlog.Errorf("failed to read request body from %s: %s", conn.RemoteAddr().String(), err)
-				ar.err <- err
-				continue
+				xbytes.PutBytes(ar.RespValue)
+				ar.Err <- err
 			}
 		}
 
-		ar.err <- nil
-	}
-}
-
-func resetMsg(msg *msgBytes) {
-	msg.header = nil
-	msg.key = nil
-	msg.value = nil
-}
-
-// dispatch requests to connections by load points, the lower point the higher priority.
-// TODO in present, we'll just use round robin to pick up connection.
-// For zMatrix, every request's size is small, it's okay to regard all requests will bring the same load.
-func (c *Client) dispatch(ar *asyncResult) error {
-
-	// Actually I don't like %, but it's not a nice thing to set Conns to power of 2.
-	idx := atomic.AddUint64(&c.nextConn, 1) % c.Conns
-
-	return c.reqQueues[idx].Push(unsafe.Pointer(ar))
+		ar.Err <- nil
+	}, ants.WithLogger(xlog.GetLogger()), ants.WithExpiryDuration(3*time.Second), ants.WithPreAlloc(false))
+	return w
 }
 
 var asyncResultPool sync.Pool
 
-func acquireAsyncResult() *asyncResult {
+func AcquireAsyncResult() *AsyncResult {
 	v := asyncResultPool.Get()
 	if v == nil {
-		return &asyncResult{}
+		return &AsyncResult{}
 	}
-	return v.(*asyncResult)
+	return v.(*AsyncResult)
 }
 
-func releaseAsyncResult(ar *asyncResult) {
-	ar.method = 0
-	ar.reqKey = nil
-	ar.reqValue = nil
+func ReleaseAsyncResult(ar *AsyncResult) {
+	ar.Method = 0
+	ar.ReqKey = nil
+	ar.ReqValue = nil
 
-	ar.respValue = nil
-	ar.err = nil
+	ar.RespValue = nil
+
+	ar.Conn = nil
+	ar.Err = nil
 
 	asyncResultPool.Put(ar)
+}
+
+var reqHeaderPool sync.Pool
+
+func AcquireReqHeader() *reqHeader {
+	v := reqHeaderPool.Get()
+	if v == nil {
+		return &reqHeader{}
+	}
+	return v.(*reqHeader)
+}
+
+func ReleaseReqHeader(h *reqHeader) {
+	h.dbID = 0
+	h.msgID = 0
+	h.method = 0
+	h.keySize = 0
+	h.valueSize = 0
+
+	reqHeaderPool.Put(h)
+}
+
+var respHeaderPool sync.Pool
+
+func AcquireRespHeader() *respHeader {
+	v := respHeaderPool.Get()
+	if v == nil {
+		return &respHeader{}
+	}
+	return v.(*respHeader)
+}
+
+func ReleaseRespHeader(h *respHeader) {
+	h.msgID = 0
+	h.errno = 0
+	h.bodySize = 0
+
+	respHeaderPool.Put(h)
 }

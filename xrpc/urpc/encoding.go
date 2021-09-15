@@ -50,7 +50,7 @@ func (d *decoder) decodeBody(buf []byte, n int) error {
 // If an EOF happens after reading fewer than min bytes,
 // readAtLeast returns ErrUnexpectedEOF.
 // If min is greater than the length of buf, ReadAtLeast returns ErrShortBuffer.
-// On return, n >= min if and only if err == nil.
+// On return, n >= min if and only if Err == nil.
 // If r returns an error having read at least min bytes, the error is dropped.
 func readAtLeast(r io.Reader, buf []byte, min int) (n int, err error) {
 	if len(buf) < min {
@@ -151,7 +151,7 @@ func (e *encoder) flush() error {
 	return e.bw.Flush()
 }
 
-func encodeToConn(conn net.Conn, msg *msgBytes, isReq bool) error {
+func encodeToConn(conn net.Conn, h header, key, value []byte, isReq bool) error {
 
 	bufSize := 0
 	headerSize := 0
@@ -162,14 +162,14 @@ func encodeToConn(conn net.Conn, msg *msgBytes, isReq bool) error {
 	}
 
 	bufSize += headerSize
-	bufSize += len(msg.key)
-	bufSize += len(msg.value)
+	bufSize += len(key)
+	bufSize += len(value)
 
 	buf := xbytes.GetBytes(bufSize)
 	defer xbytes.PutBytes(buf)
-	_ = msg.header.encode(buf[:headerSize])
-	copy(buf[headerSize:], msg.key)
-	copy(buf[headerSize+len(msg.key):], msg.value)
+	_ = h.encode(buf[:headerSize])
+	copy(buf[headerSize:], key)
+	copy(buf[headerSize+len(key):], value)
 
 	_, err := conn.Write(buf)
 	return err
