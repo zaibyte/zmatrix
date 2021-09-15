@@ -40,13 +40,16 @@
 package urpc
 
 import (
-	"fmt"
 	"io"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
+
+	"g.tesamc.com/IT/zaipkg/xmath"
+
+	"g.tesamc.com/IT/zaipkg/limitring"
 
 	"g.tesamc.com/IT/zaipkg/xerrors"
 
@@ -55,8 +58,6 @@ import (
 	"g.tesamc.com/IT/zmatrix/xrpc"
 
 	"g.tesamc.com/IT/zaipkg/config"
-
-	"g.tesamc.com/IT/zaipkg/xtime"
 
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xlog"
@@ -82,7 +83,7 @@ type Client struct {
 	// The number of concurrent connections the client should establish
 	// to the sever.
 	// Default is DefaultClientConns.
-	Conns int
+	Conns uint64
 
 	// The maximum number of pending requests in the queue.
 	//
@@ -91,7 +92,7 @@ type Client struct {
 	// Otherwise a lot of orpc.ErrRequestQueueOverflow errors may appear.
 	//
 	// Default is DefaultPendingMessages.
-	PendingRequests int
+	PendingRequests uint64
 
 	// Size of send buffer per each underlying connection in bytes.
 	// Default value is DefaultClientSendBufferSize.
@@ -109,6 +110,7 @@ type Client struct {
 	//
 	// Default value is DefaultFlushDelay.
 	FlushDelay time.Duration
+	NoReqSleep time.Duration
 
 	// The client calls this callback when it needs new connection
 	// to the server.
@@ -120,10 +122,13 @@ type Client struct {
 	// CloseWait is the wait duration for Stop.
 	CloseWait time.Duration
 
+	nextConn  uint64
+	reqQueues []*limitring.Ring
+	connPool  []net.Conn
+
 	requestsChan chan *asyncResult
 
-	stopChan chan struct{}
-	stopWg   sync.WaitGroup
+	wg sync.WaitGroup
 }
 
 var _client xrpc.Client = new(Client)
@@ -156,68 +161,70 @@ const (
 // Start starts rpc client. Establishes connection to the server on Client.Addr.
 func (c *Client) Start() error {
 
-	if c.stopChan != nil {
-		xlog.Panic("already started")
+	if atomic.LoadInt64(&c.isRunning) == 1 {
+		xlog.Debug("urpc client already started")
+		return nil
 	}
 
 	config.Adjust(&c.DB, DefaultDB)
 	config.Adjust(&c.PendingRequests, DefaultPendingMessages)
 	config.Adjust(&c.SendBufferSize, DefaultClientSendBufferSize)
 	config.Adjust(&c.RecvBufferSize, DefaultClientRecvBufferSize)
-	config.Adjust(&c.FlushDelay, DefaultFlushDelay)
 	config.Adjust(&c.Conns, DefaultClientConns)
 	config.Adjust(&c.CloseWait, DefaultCloseWait)
+	config.Adjust(&c.NoReqSleep, DefaultNoReqSleep)
 
-	c.requestsChan = make(chan *asyncResult, c.PendingRequests)
-	c.stopChan = make(chan struct{})
+	c.PendingRequests = xmath.NextPower2(c.PendingRequests)
+
+	// Start write index at the value before 0
+	// to allow the first conn to use AddUint64
+	// and still have a beginning index of 0
+	c.nextConn = ^c.nextConn
+	c.reqQueues = make([]*limitring.Ring, c.Conns)
+	for i := range c.reqQueues {
+		c.reqQueues[i] = limitring.New(c.PendingRequests)
+	}
+	c.connPool = make([]net.Conn, c.Conns)
 
 	if c.Dial == nil {
 		c.Dial = defaultDial
 	}
 
-	for i := 0; i < c.Conns; i++ {
-		c.stopWg.Add(1)
-		go c.clientHandler()
+	for i := uint64(0); i < c.Conns; i++ { // There is no reason that failed to establish UDS conn except serious issue.
+		conn, err := c.Dial(c.Addr)
+		if err != nil {
+			c.closeAllConn()
+			return err
+		}
+		c.connPool[i] = conn
+	}
+
+	for i := uint64(0); i < c.Conns; i++ {
+		c.wg.Add(1)
+		go c.handle(int(i))
 	}
 
 	atomic.StoreInt64(&c.isRunning, 1)
 	return nil
 }
 
-func (c *Client) Stop(err error) {
+func (c *Client) closeAllConn() {
+
+	for _, co := range c.connPool {
+		if co != nil {
+			_ = co.Close()
+		}
+	}
+}
+
+func (c *Client) Stop(_ error) {
 	if !atomic.CompareAndSwapInt64(&c.isRunning, 1, 0) {
 		return
 	}
 
-	if c.stopChan == nil {
-		xlog.Panic("client must be started before stopping it")
-	}
-	close(c.stopChan)
+	c.wg.Wait()
 
-	c.stopWg.Wait()
-
-	if err == nil {
-		err = orpc.ErrServiceClosed
-	}
-
-	t := xtime.AcquireTimer(c.CloseWait)
-
-	for {
-		select {
-		case r := <-c.requestsChan:
-			r.err <- err
-			continue
-		case <-t.C:
-			goto reset
-		default:
-			continue
-		}
-	}
-
-reset:
-	xtime.ReleaseTimer(t)
-
-	c.stopChan = nil
+	c.closeAllConn()
 }
 
 func (c *Client) Set(key, value []byte) error {
@@ -275,15 +282,6 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 	return nil, nil, nil
 }
 
-type PoolBytesCloser struct {
-	p []byte
-}
-
-func (r PoolBytesCloser) Close() error {
-	xbytes.PutBytes(r.p)
-	return nil
-}
-
 func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, err error) {
 
 	if method != setMethod && method != getMethod {
@@ -300,244 +298,76 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, er
 		ar.reqValue = value
 	}
 
-	select {
-	case c.requestsChan <- ar:
-		return ar, nil
-	default:
-		// Try substituting the oldest async request by the new one
-		// on requests' queue overflow.
-		// This increases the chances for new request to succeed
-		// without timeout.
-		select {
-		case ar2 := <-c.requestsChan:
-			ar2.err <- orpc.ErrRequestQueueOverflow
-		default:
-		}
-
-		// After pop, try to put again.
-		select {
-		case c.requestsChan <- ar:
-			return ar, nil
-		default:
-			// RequestsChan is filled, release it since m wasn't exposed to the caller yet.
-			releaseAsyncResult(ar)
-			return nil, orpc.ErrRequestQueueOverflow
-		}
+	err = c.dispatch(ar)
+	if err != nil {
+		releaseAsyncResult(ar)
+		return nil, err // Queue is full.
 	}
+	return ar, nil
 }
 
-func (c *Client) clientHandler() {
-	defer c.stopWg.Done()
+func (c *Client) handle(connIdx int) {
+	defer c.wg.Done()
 
-	var conn net.Conn
-	var err error
-	var stopping atomic.Value
+	q := c.reqQueues[connIdx]
+	conn := c.connPool[connIdx]
+
+	msg := new(msgBytes)
+	reqH := new(reqHeader)
+	respH := new(respHeader)
+
+	respHBuf := make([]byte, respHeaderSize)
 
 	for {
-		dialChan := make(chan struct{})
-		go func() {
-			if conn, err = c.Dial(c.Addr); err != nil {
-				if stopping.Load() == nil {
-					xlog.Errorf("cannot establish rpc connection to: %s: %s", c.Addr, err)
-				}
-			}
-			close(dialChan)
-		}()
-
-		select {
-		case <-c.stopChan:
-			stopping.Store(true)
-			<-dialChan
+		if atomic.LoadInt64(&c.isRunning) != 1 {
 			return
-		case <-dialChan:
 		}
 
-		if err != nil {
-			select {
-			case <-c.stopChan:
-				return
-			case <-time.After(300 * time.Millisecond): // After 300ms, try to dial again.
-			}
+		d, ok := q.Pop()
+		if !ok {
+			time.Sleep(c.NoReqSleep)
 			continue
 		}
-		c.clientHandleConnection(conn)
 
-		select {
-		case <-c.stopChan:
-			return
-		default:
-		}
-	}
-}
-
-func (c *Client) clientHandleConnection(conn net.Conn) {
-
-	var err error
-
-	stopChan := make(chan struct{})
-
-	pendingRequests := make(map[uint64]*asyncResult, c.PendingRequests)
-	var pendingRequestsLock sync.Mutex // Only two goroutine here, map with mutex is faster than sync.Map.
-
-	writerDone := make(chan error, 1)
-	go c.clientWriter(conn, pendingRequests, &pendingRequestsLock, stopChan, writerDone)
-
-	readerDone := make(chan error, 1)
-	go c.clientReader(conn, pendingRequests, &pendingRequestsLock, readerDone)
-
-	select {
-	case err = <-writerDone:
-		close(stopChan)
-		_ = conn.Close()
-		<-readerDone
-	case err = <-readerDone:
-		close(stopChan)
-		_ = conn.Close()
-		<-writerDone
-	case <-c.stopChan:
-		close(stopChan)
-		_ = conn.Close()
-		<-readerDone
-		<-writerDone
-	}
-
-	for _, ar := range pendingRequests {
-		select {
-		case ar.err <- err:
-		default: // Avoiding blocking.
-		}
-	}
-}
-
-func (c *Client) clientWriter(w net.Conn, pendingRequests map[uint64]*asyncResult, pendingRequestsLock *sync.Mutex,
-	stopChan <-chan struct{}, done chan<- error) {
-
-	var err error
-	defer func() { done <- err }()
-
-	enc := newEncoder(w, c.SendBufferSize)
-	msg := new(msgBytes)
-	rh := new(reqHeader)
-
-	t := time.NewTimer(c.FlushDelay)
-	var flushChan <-chan time.Time
-
-	var msgID uint64 = 1
-	headerBuf := make([]byte, reqHeaderSize) // reqHeaderSize is bigger than respHeaderSize.
-
-	for {
-		msgID++
-
-		var ar *asyncResult
-
-		select {
-		case ar = <-c.requestsChan:
-		default:
-			// Give the last chance for ready goroutines filling c.requestsChan :)
-			runtime.Gosched()
-
-			select {
-			case <-stopChan:
-				return
-			case ar = <-c.requestsChan:
-			case <-flushChan:
-				if err = enc.flush(); err != nil {
-					err = fmt.Errorf("client cannot requests to: %s: %s", c.Addr, err)
-					return
-				}
-				flushChan = nil
-				continue
-			}
-		}
-
-		if flushChan == nil {
-			flushChan = xtime.GetTimerEvent(t, c.FlushDelay)
-		}
-
-		pendingRequestsLock.Lock()
-		n := len(pendingRequests)
-		pendingRequests[msgID] = ar
-		pendingRequestsLock.Unlock()
-
-		if n > 10*c.PendingRequests {
-			xlog.Errorf("server: %s didn't return %d responses yet: closing connection", c.Addr, n)
-			err = orpc.ErrConnection
-			return
-		}
-
-		rh.method = ar.method
-		rh.msgID = msgID
-		rh.keySize = uint16(len(ar.reqKey))
-		rh.dbID = c.DB
+		ar := (*asyncResult)(d)
+		reqH.method = ar.method
+		reqH.keySize = uint16(len(ar.reqKey))
+		reqH.dbID = c.DB
 		if ar.reqValue != nil {
-			rh.valueSize = uint32(len(ar.reqValue))
+			reqH.valueSize = uint32(len(ar.reqValue))
 		} else {
-			rh.valueSize = 0
+			reqH.valueSize = 0
 		}
-		msg.header = rh
+		msg.header = reqH
 		msg.key = ar.reqKey
 		msg.value = ar.reqValue
 
-		if err = enc.encode(msg, headerBuf); err != nil {
+		err := encodeToConn(conn, msg, true)
+		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
+			ar.err <- err
 			xlog.Errorf("failed to send request to: %s: %s", c.Addr, err)
-			return
-		}
-		msg.header = nil
-		msg.key = nil
-		msg.value = nil
-	}
-}
-
-func (c *Client) clientReader(r net.Conn, pendingRequests map[uint64]*asyncResult, pendingRequestsLock *sync.Mutex, done chan<- error) {
-	var err error
-	defer func() {
-		if x := recover(); x != nil {
-			if err == nil {
-				stackTrace := make([]byte, 1<<20)
-				n := runtime.Stack(stackTrace, false)
-				xlog.Errorf("panic when reading data from server: %s: %v\nStack trace: %s", r.RemoteAddr().String(), x, stackTrace[:n])
-			}
+			resetMsg(msg)
+			continue
 		}
 
-		done <- err
-	}()
+		resetMsg(msg)
 
-	dec := newDecoder(r, c.RecvBufferSize)
-	rh := new(respHeader)
-	headerBuf := make([]byte, respHeaderSize)
-	for {
-
-		err = dec.decodeHeader(headerBuf, rh)
+		_, err = readAtLeast(conn, respHBuf, respHeaderSize)
 		if err != nil {
-			if err == orpc.ErrTimeout {
-				continue // Keeping trying to read request header.
-			}
-			xlog.Errorf("failed to read request header from %s: %s", r.RemoteAddr().String(), err)
-			return
+			ar.err <- err
+			xlog.Errorf("failed to read request header from %s: %s", conn.RemoteAddr().String(), err)
+			continue
 		}
 
-		msgID := rh.msgID
+		_ = respH.decode(respHBuf)
 
-		pendingRequestsLock.Lock()
-		ar, ok := pendingRequests[msgID]
-		if ok {
-			delete(pendingRequests, msgID)
-		}
-		pendingRequestsLock.Unlock()
-
-		if !ok {
-			xlog.Errorf("unexpected msgID: %d obtained from: %s", msgID, c.Addr)
-			err = orpc.ErrInternalServer
-			return
-		}
-
-		errno := rh.errno
+		errno := respH.errno
 		if errno != 0 { // Ignore response if any error. And the response must be nil.
 			ar.err <- orpc.Errno(errno).ToErr()
 			continue
 		}
 
-		n := rh.bodySize
+		n := respH.bodySize
 		if n == 0 {
 			ar.err <- nil
 			continue
@@ -545,17 +375,34 @@ func (c *Client) clientReader(r net.Conn, pendingRequests map[uint64]*asyncResul
 
 		if n != 0 {
 			ar.respValue = xbytes.GetBytes(int(n))
-			err = dec.decodeBody(ar.respValue, int(n))
+			_, err = readAtLeast(conn, ar.respValue, int(n))
 			if err != nil { // If failed to read body, the next read header will be failed too, so just return.
 				xbytes.PutBytes(ar.respValue)
-				xlog.Errorf("failed to read request body from %s: %s", r.RemoteAddr().String(), err)
+				xlog.Errorf("failed to read request body from %s: %s", conn.RemoteAddr().String(), err)
 				ar.err <- err
-				return
+				continue
 			}
 		}
 
 		ar.err <- nil
 	}
+}
+
+func resetMsg(msg *msgBytes) {
+	msg.header = nil
+	msg.key = nil
+	msg.value = nil
+}
+
+// dispatch requests to connections by load points, the lower point the higher priority.
+// TODO in present, we'll just use round robin to pick up connection.
+// For zMatrix, every request's size is small, it's okay to regard all requests will bring the same load.
+func (c *Client) dispatch(ar *asyncResult) error {
+
+	// Actually I don't like %, but it's not a nice thing to set Conns to power of 2.
+	idx := atomic.AddUint64(&c.nextConn, 1) % c.Conns
+
+	return c.reqQueues[idx].Push(unsafe.Pointer(ar))
 }
 
 var asyncResultPool sync.Pool

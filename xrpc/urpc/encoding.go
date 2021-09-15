@@ -150,3 +150,27 @@ func (e *encoder) encodeBytesPool(msg *msgBytes, headerBuf []byte) error {
 func (e *encoder) flush() error {
 	return e.bw.Flush()
 }
+
+func encodeToConn(conn net.Conn, msg *msgBytes, isReq bool) error {
+
+	bufSize := 0
+	headerSize := 0
+	if isReq {
+		headerSize = reqHeaderSize
+	} else {
+		headerSize = respHeaderSize
+	}
+
+	bufSize += headerSize
+	bufSize += len(msg.key)
+	bufSize += len(msg.value)
+
+	buf := xbytes.GetBytes(bufSize)
+	defer xbytes.PutBytes(buf)
+	_ = msg.header.encode(buf[:headerSize])
+	copy(buf[headerSize:], msg.key)
+	copy(buf[headerSize+len(msg.key):], msg.value)
+
+	_, err := conn.Write(buf)
+	return err
+}

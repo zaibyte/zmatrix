@@ -50,11 +50,14 @@ import (
 const (
 	// DefaultPendingMessages is the default number of pending messages
 	// handled by Client and Server.
-	DefaultPendingMessages = 32 * 1024
+	//
+	// It's meaningless for setting it too big for unix domain socket.
+	DefaultPendingMessages = 4096
 
 	// DefaultFlushDelay Sacrifice the number of Write() calls to the smallest
 	// possible latency, since it has higher priority in local IPC.
 	DefaultFlushDelay = time.Duration(-1)
+	DefaultNoReqSleep = 10 * time.Microsecond
 )
 
 // compactSetBatchReq compacts keys & values into one byte slice for sending to server.
@@ -113,4 +116,13 @@ func extraSetBatchReq(c []byte) (keys, values [][]byte) {
 		offset += vl
 	}
 	return
+}
+
+type PoolBytesCloser struct {
+	p []byte
+}
+
+func (r PoolBytesCloser) Close() error {
+	xbytes.PutBytes(r.p)
+	return nil
 }

@@ -58,9 +58,6 @@ func NewClient(addr string, db uint32) *Client {
 		Dial: func(addr string) (conn net.Conn, err error) {
 			return defaultDial(addr)
 		},
-		// Sacrifice the number of Write() calls to the smallest
-		// possible latency, since it has higher priority in local IPC.
-		FlushDelay: -1,
 	}
 
 	return c
