@@ -121,8 +121,6 @@ type AsyncResult struct {
 
 	RespValue []byte
 
-	Conn net.Conn
-
 	Err chan error
 }
 
@@ -363,7 +361,7 @@ func (c *Client) runReqWorker(i int) {
 		}
 
 		// Waiting for response.
-		_, err = readAtLeast(ar.Conn, respHBuf, respHeaderSize)
+		_, err = readAtLeast(conn, respHBuf, respHeaderSize)
 		if err != nil {
 			ar.Err <- err
 			break
@@ -385,7 +383,7 @@ func (c *Client) runReqWorker(i int) {
 
 		if n != 0 {
 			ar.RespValue = xbytes.GetBytes(int(n))
-			_, err = readAtLeast(ar.Conn, ar.RespValue, int(n))
+			_, err = readAtLeast(conn, ar.RespValue, int(n))
 			if err != nil { // If failed to read body, the next read header will be failed too, so just return.
 				xbytes.PutBytes(ar.RespValue)
 				ar.Err <- err
@@ -422,7 +420,6 @@ func ReleaseAsyncResult(ar *AsyncResult) {
 
 	ar.RespValue = nil
 
-	ar.Conn = nil
 	ar.Err = nil
 
 	asyncResultPool.Put(ar)
