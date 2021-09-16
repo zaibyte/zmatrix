@@ -42,6 +42,7 @@ package urpc
 import (
 	"io"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -108,7 +109,8 @@ type Client struct {
 	connPool     []net.Conn
 	requestsChan []chan *AsyncResult
 
-	wg sync.WaitGroup
+	wg       sync.WaitGroup
+	stopChan chan struct{}
 }
 
 var _client xrpc.Client = new(Client)
@@ -170,6 +172,8 @@ func (c *Client) Start() error {
 		c.connPool[i] = conn
 	}
 
+	c.stopChan = make(chan struct{})
+
 	atomic.StoreInt64(&c.isRunning, 1)
 
 	c.wg.Add(1)
@@ -192,14 +196,42 @@ func (c *Client) closeAllConn() {
 	}
 }
 
-func (c *Client) Stop(_ error) {
+func (c *Client) Stop(err error) {
 	if !atomic.CompareAndSwapInt64(&c.isRunning, 1, 0) {
 		return
 	}
 
+	close(c.stopChan)
+
 	c.wg.Wait()
 
 	c.closeAllConn()
+
+	if err == nil {
+		err = orpc.ErrServiceClosed
+	}
+
+	for {
+		d, ok := c.reqQueue.Pop()
+		if !ok {
+			break
+		}
+		ar := (*AsyncResult)(d)
+		select {
+		case ar.Err <- err:
+		default:
+
+		}
+	}
+
+	for _, reqC := range c.requestsChan {
+		for ar := range reqC {
+			select {
+			case ar.Err <- err:
+			default: // Avoiding blocking.
+			}
+		}
+	}
 }
 
 func (c *Client) Set(key, value []byte) error {
@@ -355,7 +387,22 @@ func (c *Client) runReqWorker(i int) {
 			break
 		}
 
-		ar := <-reqC
+		var ar *AsyncResult
+		select {
+		case ar = <-reqC:
+		default:
+			select {
+			case <-c.stopChan:
+				break
+			case ar = <-reqC:
+			default:
+				runtime.Gosched()
+				continue
+			}
+		}
+		if ar == nil {
+			continue
+		}
 
 		reqH.method = ar.Method
 		reqH.keySize = uint16(len(ar.ReqKey))
@@ -404,17 +451,6 @@ func (c *Client) runReqWorker(i int) {
 		}
 
 		ar.Err <- nil
-	}
-
-	if err == nil {
-		err = orpc.ErrServiceClosed
-	}
-
-	for ar := range reqC {
-		select {
-		case ar.Err <- err:
-		default: // Avoiding blocking.
-		}
 	}
 }
 
