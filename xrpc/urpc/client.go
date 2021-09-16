@@ -316,9 +316,17 @@ func (c *Client) dispatch() {
 		ar := (*AsyncResult)(d)
 		c.nextConn++
 		idx := c.nextConn % c.Conns
+
 		select {
 		case c.requestsChan[idx] <- ar:
 		default:
+			select {
+			case ar2 := <-c.requestsChan[idx]:
+				ar2.Err <- orpc.ErrRequestQueueOverflow
+			default:
+			}
+
+			// After pop, try to put again.
 			select {
 			case c.requestsChan[idx] <- ar:
 			default:
@@ -403,7 +411,10 @@ func (c *Client) runReqWorker(i int) {
 	}
 
 	for ar := range reqC {
-		ar.Err <- err
+		select {
+		case ar.Err <- err:
+		default: // Avoiding blocking.
+		}
 	}
 }
 
