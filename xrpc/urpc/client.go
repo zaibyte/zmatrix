@@ -45,14 +45,8 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
-	"unsafe"
-
-	"g.tesamc.com/IT/zaipkg/xtest"
 
 	"g.tesamc.com/IT/zaipkg/xmath"
-
-	"g.tesamc.com/IT/zaipkg/limitring"
 
 	"g.tesamc.com/IT/zaipkg/xerrors"
 
@@ -105,7 +99,6 @@ type Client struct {
 	Dial DialFunc
 
 	nextConn     uint64
-	reqQueue     *limitring.Ring
 	connPool     []net.Conn
 	requestsChan []chan *AsyncResult
 
@@ -151,7 +144,6 @@ func (c *Client) Start() error {
 	// to allow the first conn to use AddUint64
 	// and still have a beginning index of 0
 	c.nextConn = ^c.nextConn
-	c.reqQueue = limitring.New(c.PendingRequests)
 	c.requestsChan = make([]chan *AsyncResult, c.Conns)
 	for i := range c.requestsChan {
 		c.requestsChan[i] = make(chan *AsyncResult, c.PendingRequests/2/c.Conns)
@@ -175,9 +167,6 @@ func (c *Client) Start() error {
 	c.stopChan = make(chan struct{})
 
 	atomic.StoreInt64(&c.isRunning, 1)
-
-	c.wg.Add(1)
-	go c.dispatch()
 
 	for i := uint64(0); i < c.Conns; i++ {
 		c.wg.Add(1)
@@ -211,20 +200,8 @@ func (c *Client) Stop(err error) {
 		err = orpc.ErrServiceClosed
 	}
 
-	for {
-		d, ok := c.reqQueue.Pop()
-		if !ok {
-			break
-		}
-		ar := (*AsyncResult)(d)
-		select {
-		case ar.Err <- err:
-		default:
-
-		}
-	}
-
 	for _, reqC := range c.requestsChan {
+		close(reqC)
 		for ar := range reqC {
 			select {
 			case ar.Err <- err:
@@ -305,65 +282,26 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *AsyncResult, er
 		ar.ReqValue = value
 	}
 
-	err = c.reqQueue.Push(unsafe.Pointer(ar))
-	if err != nil {
-		ReleaseAsyncResult(ar)
-		return nil, err // Queue is full.
-	}
-	return ar, nil
-}
+	c.nextConn++
+	idx := c.nextConn % c.Conns
 
-func (c *Client) dispatch() {
-	defer c.wg.Done()
-
-	q := c.reqQueue
-
-	maxSleep := time.Microsecond * 10
-	retry := &orpc.Retryer{
-		MinSleep: time.Nanosecond * 50, // About one ->chan-> operation.
-		MaxTried: 10,
-		MaxSleep: maxSleep,
-	}
-
-	lastSleepIter := 0
-	for i := 0; ; i++ {
-		if atomic.LoadInt64(&c.isRunning) != 1 {
-			return
+	select {
+	case c.requestsChan[idx] <- ar:
+		return ar, nil
+	default:
+		select {
+		case ar2 := <-c.requestsChan[idx]:
+			ar2.Err <- orpc.ErrRequestQueueOverflow
+		default:
 		}
 
-		d, ok := q.Pop()
-		if !ok {
-			sleepDuration := retry.GetSleepDuration(i-lastSleepIter, 0)
-			if sleepDuration >= maxSleep {
-				time.Sleep(sleepDuration)
-				lastSleepIter = i
-				continue
-			}
-			spins := durationToSpins(sleepDuration)
-			// TODO may spin too much?
-			xtest.DoNothing(spins) // Using spin but not sleep to reduce context switch & runtime overhead hugely.
-			continue
-		}
-
-		ar := (*AsyncResult)(d)
-		c.nextConn++
-		idx := c.nextConn % c.Conns
-
+		// After pop, try to put again.
 		select {
 		case c.requestsChan[idx] <- ar:
+			return ar, nil
 		default:
-			select {
-			case ar2 := <-c.requestsChan[idx]:
-				ar2.Err <- orpc.ErrRequestQueueOverflow
-			default:
-			}
-
-			// After pop, try to put again.
-			select {
-			case c.requestsChan[idx] <- ar:
-			default:
-				ar.Err <- orpc.ErrRequestQueueOverflow
-			}
+			ReleaseAsyncResult(ar)
+			return nil, orpc.ErrRequestQueueOverflow // Queue is full.
 		}
 	}
 }
