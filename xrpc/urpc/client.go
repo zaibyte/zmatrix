@@ -330,6 +330,8 @@ func (c *Client) dispatch() {
 
 func (c *Client) runReqWorker(i int) {
 
+	defer c.wg.Done()
+
 	conn := c.connPool[i]
 	reqC := c.requestsChan[i]
 
