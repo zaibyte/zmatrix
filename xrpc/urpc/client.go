@@ -170,6 +170,8 @@ func (c *Client) Start() error {
 		c.connPool[i] = conn
 	}
 
+	atomic.StoreInt64(&c.isRunning, 1)
+
 	c.wg.Add(1)
 	go c.dispatch()
 
@@ -178,7 +180,6 @@ func (c *Client) Start() error {
 		go c.runReqWorker(int(i))
 	}
 
-	atomic.StoreInt64(&c.isRunning, 1)
 	return nil
 }
 
@@ -307,6 +308,7 @@ func (c *Client) dispatch() {
 				continue
 			}
 			spins := durationToSpins(sleepDuration)
+			// TODO may spin too much?
 			xtest.DoNothing(spins) // Using spin but not sleep to reduce context switch & runtime overhead hugely.
 			continue
 		}
@@ -314,13 +316,13 @@ func (c *Client) dispatch() {
 		ar := (*AsyncResult)(d)
 		c.nextConn++
 		idx := c.nextConn % c.Conns
-		for { // Keeping trying until send to a requests chan.
+		select {
+		case c.requestsChan[idx] <- ar:
+		default:
 			select {
 			case c.requestsChan[idx] <- ar:
 			default:
-				c.nextConn++
-				idx = c.nextConn % c.Conns
-				continue
+				ar.Err <- orpc.ErrRequestQueueOverflow
 			}
 		}
 	}
