@@ -57,7 +57,6 @@ const (
 	// DefaultFlushDelay Sacrifice the number of Write() calls to the smallest
 	// possible latency, since it has higher priority in local IPC.
 	DefaultFlushDelay = time.Duration(-1)
-	DefaultNoReqSleep = 10 * time.Microsecond
 )
 
 // compactSetBatchReq compacts keys & values into one byte slice for sending to server.
@@ -125,4 +124,9 @@ type PoolBytesCloser struct {
 func (r PoolBytesCloser) Close() error {
 	xbytes.PutBytes(r.p)
 	return nil
+}
+
+// durationToSpins coverts time.Duration to spins.
+func durationToSpins(t time.Duration) uint32 {
+	return uint32(int64(t) / (30 * int64(time.Nanosecond)))
 }

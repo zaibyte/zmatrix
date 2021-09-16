@@ -47,7 +47,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/panjf2000/ants/v2"
+	"g.tesamc.com/IT/zaipkg/xtest"
 
 	"g.tesamc.com/IT/zaipkg/xmath"
 
@@ -96,8 +96,6 @@ type Client struct {
 	// Default is DefaultPendingMessages.
 	PendingRequests uint64
 
-	NoReqSleep time.Duration
-
 	// The client calls this callback when it needs new connection
 	// to the server.
 	// The client passes Client.Addr into Dial().
@@ -105,12 +103,10 @@ type Client struct {
 	// By default it returns UNIX connections established to the Client.Addr.
 	Dial DialFunc
 
-	nextConn    uint64
-	reqQueue    *limitring.Ring
-	connPool    []net.Conn
-	connWorkers []*ants.PoolWithFunc
-
-	requestsChan chan *AsyncResult
+	nextConn     uint64
+	reqQueue     *limitring.Ring
+	connPool     []net.Conn
+	requestsChan []chan *AsyncResult
 
 	wg sync.WaitGroup
 }
@@ -148,18 +144,20 @@ func (c *Client) Start() error {
 	config.Adjust(&c.DB, DefaultDB)
 	config.Adjust(&c.PendingRequests, DefaultPendingMessages)
 	config.Adjust(&c.Conns, DefaultClientConns)
-	config.Adjust(&c.NoReqSleep, DefaultNoReqSleep)
 
-	c.PendingRequests = xmath.NextPower2(c.PendingRequests)
+	c.PendingRequests = xmath.NextPower2(c.PendingRequests / 2)
 
 	// Start write index at the value before 0
 	// to allow the first conn to use AddUint64
 	// and still have a beginning index of 0
 	c.nextConn = ^c.nextConn
 	c.reqQueue = limitring.New(c.PendingRequests)
+	c.requestsChan = make([]chan *AsyncResult, c.Conns)
+	for i := range c.requestsChan {
+		c.requestsChan[i] = make(chan *AsyncResult, c.PendingRequests/2/c.Conns)
+	}
 
 	c.connPool = make([]net.Conn, c.Conns)
-	c.connWorkers = make([]*ants.PoolWithFunc, c.Conns)
 
 	if c.Dial == nil {
 		c.Dial = defaultDial
@@ -172,12 +170,14 @@ func (c *Client) Start() error {
 			return err
 		}
 		c.connPool[i] = conn
-		c.connWorkers[i] = c.createWorker()
 	}
+
+	c.wg.Add(1)
+	go c.dispatch()
 
 	for i := uint64(0); i < c.Conns; i++ {
 		c.wg.Add(1)
-		go c.handle()
+		go c.runReqWorker(int(i))
 	}
 
 	atomic.StoreInt64(&c.isRunning, 1)
@@ -189,12 +189,6 @@ func (c *Client) closeAllConn() {
 	for _, co := range c.connPool {
 		if co != nil {
 			_ = co.Close()
-		}
-	}
-
-	for _, w := range c.connWorkers {
-		if w != nil {
-			w.Release()
 		}
 	}
 }
@@ -288,41 +282,70 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *AsyncResult, er
 	return ar, nil
 }
 
-func (c *Client) handle() {
+func (c *Client) dispatch() {
 	defer c.wg.Done()
 
 	q := c.reqQueue
 
-	for {
+	maxSleep := time.Microsecond * 10
+	retry := &orpc.Retryer{
+		MinSleep: time.Nanosecond * 50, // About one ->chan-> operation.
+		MaxTried: 10,
+		MaxSleep: maxSleep,
+	}
+
+	lastSleepIter := 0
+	for i := 0; ; i++ {
 		if atomic.LoadInt64(&c.isRunning) != 1 {
 			return
 		}
 
 		d, ok := q.Pop()
 		if !ok {
-			time.Sleep(c.NoReqSleep)
+			sleepDuration := retry.GetSleepDuration(i-lastSleepIter, 0)
+			if sleepDuration >= maxSleep {
+				time.Sleep(sleepDuration)
+				lastSleepIter = i
+				continue
+			}
+			spins := durationToSpins(sleepDuration)
+			xtest.DoNothing(spins) // Using spin but not sleep to reduce context switch & runtime overhead hugely.
 			continue
 		}
 
-		c.nextConn = c.nextConn + 1
-		idx := c.nextConn % c.Conns
-		conn := c.connPool[idx]
-		worker := c.connWorkers[idx]
 		ar := (*AsyncResult)(d)
-		ar.Conn = conn
-		_ = worker.Invoke(ar)
-
+		c.nextConn++
+		idx := c.nextConn % c.Conns
+		for { // Keeping trying until send to a requests chan.
+			select {
+			case c.requestsChan[idx] <- ar:
+			default:
+				c.nextConn++
+				idx = c.nextConn % c.Conns
+				continue
+			}
+		}
 	}
 }
 
-func (c *Client) createWorker() *ants.PoolWithFunc {
+func (c *Client) runReqWorker(i int) {
 
-	w, _ := ants.NewPoolWithFunc(1, func(i interface{}) {
+	conn := c.connPool[i]
+	reqC := c.requestsChan[i]
 
-		ar := i.(*AsyncResult)
+	reqH := new(reqHeader)
+	reqBuf := make([]byte, 64*1024)
 
-		reqH := AcquireReqHeader()
-		defer ReleaseReqHeader(reqH)
+	respH := new(respHeader)
+	respHBuf := make([]byte, respHeaderSize)
+
+	var err error
+	for {
+		if atomic.LoadInt64(&c.isRunning) != 1 {
+			break
+		}
+
+		ar := <-reqC
 
 		reqH.method = ar.Method
 		reqH.keySize = uint16(len(ar.ReqKey))
@@ -333,35 +356,31 @@ func (c *Client) createWorker() *ants.PoolWithFunc {
 			reqH.valueSize = 0
 		}
 
-		err := encodeToConn(ar.Conn, reqH, ar.ReqKey, ar.ReqValue, true)
+		err = encodeToConn(conn, reqH, ar.ReqKey, ar.ReqValue, reqBuf, true)
 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
 			ar.Err <- err
-			return
+			break
 		}
 
-		respHBuf := xbytes.GetBytes(respHeaderSize)
-		defer xbytes.PutBytes(respHBuf)
-
+		// Waiting for response.
 		_, err = readAtLeast(ar.Conn, respHBuf, respHeaderSize)
 		if err != nil {
 			ar.Err <- err
-			return
+			break
 		}
 
-		respH := AcquireRespHeader()
-		defer ReleaseRespHeader(respH)
 		_ = respH.decode(respHBuf)
 
 		errno := respH.errno
 		if errno != 0 { // Ignore response if any error. And the response must be nil.
 			ar.Err <- orpc.Errno(errno).ToErr()
-			return
+			continue
 		}
 
 		n := respH.bodySize
 		if n == 0 {
 			ar.Err <- nil
-			return
+			continue
 		}
 
 		if n != 0 {
@@ -370,12 +389,20 @@ func (c *Client) createWorker() *ants.PoolWithFunc {
 			if err != nil { // If failed to read body, the next read header will be failed too, so just return.
 				xbytes.PutBytes(ar.RespValue)
 				ar.Err <- err
+				break
 			}
 		}
 
 		ar.Err <- nil
-	}, ants.WithLogger(xlog.GetLogger()), ants.WithExpiryDuration(3*time.Second), ants.WithPreAlloc(false))
-	return w
+	}
+
+	if err == nil {
+		err = orpc.ErrServiceClosed
+	}
+
+	for ar := range reqC {
+		ar.Err <- err
+	}
 }
 
 var asyncResultPool sync.Pool
@@ -399,42 +426,4 @@ func ReleaseAsyncResult(ar *AsyncResult) {
 	ar.Err = nil
 
 	asyncResultPool.Put(ar)
-}
-
-var reqHeaderPool sync.Pool
-
-func AcquireReqHeader() *reqHeader {
-	v := reqHeaderPool.Get()
-	if v == nil {
-		return &reqHeader{}
-	}
-	return v.(*reqHeader)
-}
-
-func ReleaseReqHeader(h *reqHeader) {
-	h.dbID = 0
-	h.msgID = 0
-	h.method = 0
-	h.keySize = 0
-	h.valueSize = 0
-
-	reqHeaderPool.Put(h)
-}
-
-var respHeaderPool sync.Pool
-
-func AcquireRespHeader() *respHeader {
-	v := respHeaderPool.Get()
-	if v == nil {
-		return &respHeader{}
-	}
-	return v.(*respHeader)
-}
-
-func ReleaseRespHeader(h *respHeader) {
-	h.msgID = 0
-	h.errno = 0
-	h.bodySize = 0
-
-	respHeaderPool.Put(h)
 }

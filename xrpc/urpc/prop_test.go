@@ -128,7 +128,7 @@ func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings 
 	time.Sleep(50 * time.Millisecond)
 }
 
-func TestClient_Set_Latency(t *testing.T) {
+func TestClient_Set_Latency_Single(t *testing.T) {
 
 	// if !xtest.IsPropEnabled() {
 	// 	t.Skip("skip prop testing")

@@ -151,7 +151,7 @@ func (e *encoder) flush() error {
 	return e.bw.Flush()
 }
 
-func encodeToConn(conn net.Conn, h header, key, value []byte, isReq bool) error {
+func encodeToConn(conn net.Conn, h header, key, value, buf []byte, isReq bool) error {
 
 	bufSize := 0
 	headerSize := 0
@@ -165,8 +165,18 @@ func encodeToConn(conn net.Conn, h header, key, value []byte, isReq bool) error 
 	bufSize += len(key)
 	bufSize += len(value)
 
-	buf := xbytes.GetBytes(bufSize)
-	defer xbytes.PutBytes(buf)
+	usingPool := false
+	if bufSize > len(buf) {
+		buf = xbytes.GetBytes(bufSize)
+		usingPool = true
+	}
+	buf = buf[:bufSize]
+	defer func() {
+		if usingPool {
+			xbytes.PutBytes(buf)
+		}
+	}()
+
 	_ = h.encode(buf[:headerSize])
 	copy(buf[headerSize:], key)
 	copy(buf[headerSize+len(key):], value)
