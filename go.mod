@@ -9,6 +9,7 @@ require (
 	github.com/panjf2000/ants/v2 v2.4.4-0.20210318172516-2e763f12162d
 	github.com/stretchr/testify v1.6.1
 	github.com/templexxx/tsc v0.0.3
+	github.com/xtaci/gaio v1.2.14
 )
 
 require (

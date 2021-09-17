@@ -58,6 +58,14 @@ type reqHeader struct {
 	dbID      uint32 // [15, 19)
 }
 
+func (h *reqHeader) reset() {
+	h.method = 0
+	h.msgID = 0
+	h.valueSize = 0
+	h.keySize = 0
+	h.dbID = 0
+}
+
 func (h *reqHeader) encode(buf []byte) []byte {
 	if len(buf) < reqHeaderSize {
 		panic("input buf too small for reqHeader")

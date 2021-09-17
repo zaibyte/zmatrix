@@ -11,9 +11,43 @@ import (
 	"time"
 
 	"github.com/templexxx/tsc"
+	"github.com/xtaci/gaio"
 
 	"github.com/elastic/go-hdrhistogram"
 )
+
+func Test_AIO(t *testing.T) {
+
+	gaio.NewWatcher()
+
+}
+
+func echoServer(w *gaio.Watcher) {
+	for {
+		// loop wait for any IO events
+		results, err := w.WaitIO()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		for _, res := range results {
+			switch res.Operation {
+			case gaio.OpRead: // read completion event
+				if res.Error == nil {
+					// send back everything, we won't start to read again until write completes.
+					// submit an async write request
+					w.Write(nil, res.Conn, res.Buffer[:res.Size])
+				}
+			case gaio.OpWrite: // write completion event
+				if res.Error == nil {
+					// since write has completed, let's start read on this conn again
+					w.Read(nil, res.Conn, res.Buffer[:cap(res.Buffer)])
+				}
+			}
+		}
+	}
+}
 
 func Test_Lat_UDS(t *testing.T) {
 
@@ -136,25 +170,17 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 
 	addr := getRandomAddr()
 
-	// s := NewServer(addr, nopHandler())
-	//
-	// if err := s.Start(); err != nil {
-	// 	t.Fatalf("cannot start server: %s", err)
-	// }
-	// defer s.Stop(nil)
+	s := NewServer(addr, nopHandler())
+
+	if err := s.Start(); err != nil {
+		t.Fatalf("cannot start server: %s", err)
+	}
+	defer s.Stop(nil)
 
 	n := 100000
-	go server(true, addr, "", n, 1024+8+19)
-	time.Sleep(50 * time.Millisecond)
 
 	c := newTestClient(addr)
 	c.Conns = 1
-
-	err := c.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Stop(nil)
 
 	value := make([]byte, 1024)
 	rand.Read(value)
@@ -162,6 +188,12 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 	rand.Read(key)
 
 	lat := hdrhistogram.New(100, time.Second.Nanoseconds(), 3)
+
+	err := c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop(nil)
 
 	jobStart := tsc.UnixNano()
 	for i := 0; i < n; i++ {
@@ -192,14 +224,10 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 	}
 	defer s.Stop(nil)
 
-	c := newTestClient(addr)
-	c.Conns = 4
+	threads := 16
 
-	err := c.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Stop(nil)
+	c := newTestClient(addr)
+	c.Conns = uint64(threads)
 
 	value := make([]byte, 1024)
 	rand.Read(value)
@@ -210,17 +238,24 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
 	n := 100000
 	wg := new(sync.WaitGroup)
-	wg.Add(4)
+	wg.Add(threads)
+
+	err := c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop(nil)
 
 	jobStart := tsc.UnixNano()
-	for j := 0; j < 4; j++ {
+	for j := 0; j < threads; j++ {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < n; i++ {
 				start := tsc.UnixNano()
 				err := c.Set(key, value)
 				if err != nil {
-					t.Fatal(err)
+					t.Error(err)
+					return
 				}
 				_ = lat.RecordValueAtomic(tsc.UnixNano() - start)
 			}

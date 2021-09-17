@@ -45,6 +45,9 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/xtaci/gaio"
 
 	"g.tesamc.com/IT/zaipkg/xmath"
 
@@ -100,6 +103,7 @@ type Client struct {
 
 	nextConn     uint64
 	connPool     []net.Conn
+	watchers     []*gaio.Watcher // Each connection has a watcher for breaking up one chan's limitation.
 	requestsChan []chan *AsyncResult
 
 	wg       sync.WaitGroup
@@ -150,6 +154,7 @@ func (c *Client) Start() error {
 	}
 
 	c.connPool = make([]net.Conn, c.Conns)
+	c.watchers = make([]*gaio.Watcher, c.Conns)
 
 	if c.Dial == nil {
 		c.Dial = defaultDial
@@ -158,10 +163,17 @@ func (c *Client) Start() error {
 	for i := uint64(0); i < c.Conns; i++ { // There is no reason that failed to establish UDS conn except serious issue.
 		conn, err := c.Dial(c.Addr)
 		if err != nil {
-			c.closeAllConn()
+			c.closeConn()
 			return err
 		}
+		watcher, err := gaio.NewWatcher()
+		if err != nil {
+			c.closeConn()
+			return err
+		}
+
 		c.connPool[i] = conn
+		c.watchers[i] = watcher
 	}
 
 	c.stopChan = make(chan struct{})
@@ -170,17 +182,23 @@ func (c *Client) Start() error {
 
 	for i := uint64(0); i < c.Conns; i++ {
 		c.wg.Add(1)
-		go c.runReqWorker(int(i))
+		go c.watchEvents(int(i))
 	}
 
 	return nil
 }
 
-func (c *Client) closeAllConn() {
+func (c *Client) closeConn() {
 
 	for _, co := range c.connPool {
 		if co != nil {
 			_ = co.Close()
+		}
+	}
+
+	for _, wa := range c.watchers {
+		if wa != nil {
+			_ = wa.Close()
 		}
 	}
 }
@@ -194,7 +212,7 @@ func (c *Client) Stop(err error) {
 
 	c.wg.Wait()
 
-	c.closeAllConn()
+	c.closeConn()
 
 	if err == nil {
 		err = orpc.ErrServiceClosed
@@ -246,62 +264,152 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 		return nil, nil, orpc.ErrServiceClosed
 	}
 
-	var ar *AsyncResult
+	var ar *asyncResp
 	var err error
 	if ar, err = c.callAsync(method, key, value); err != nil {
 		return nil, nil, err
 	}
 
-	err = <-ar.Err
+	err = <-ar.err
 	if err != nil {
-		ReleaseAsyncResult(ar)
+		releaseAsyncResp(ar)
 		return nil, nil, err
 	}
-	if ar.RespValue != nil {
-		v := ar.RespValue
-		ReleaseAsyncResult(ar)
+	if ar.resp != nil {
+		v := ar.resp
+		releaseAsyncResp(ar)
 		return v, PoolBytesCloser{v}, nil
 	}
 
 	return nil, nil, nil
 }
 
-func (c *Client) callAsync(method uint8, key, value []byte) (ar *AsyncResult, err error) {
+func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResp, err error) {
 
 	if method != setMethod && method != getMethod {
 		return nil, orpc.ErrNotImplemented
 	}
 
-	ar = AcquireAsyncResult()
+	ar = acquireAsyncResp()
 
-	ar.Method = method
-	ar.ReqKey = key
-	ar.Err = make(chan error)
-
-	if method == setMethod || method == setBatchMethod {
-		ar.ReqValue = value
-	}
+	buf := xbytes.GetBytes(reqHeaderSize + len(key) + len(value))
+	defer xbytes.PutBytes(buf)
 
 	c.nextConn++
 	idx := c.nextConn % c.Conns
 
-	select {
-	case c.requestsChan[idx] <- ar:
-		return ar, nil
-	default:
-		select {
-		case ar2 := <-c.requestsChan[idx]:
-			ar2.Err <- orpc.ErrRequestQueueOverflow
-		default:
+	w := c.watchers[idx]
+	conn := c.connPool[idx]
+
+	h := acquireReqHeader()
+	defer releaseReqHeader(h)
+
+	h.method = method
+	h.dbID = c.DB
+	h.keySize = uint16(len(key))
+	h.valueSize = uint32(len(value))
+	h.encode(buf[:reqHeaderSize])
+
+	copy(buf[reqHeaderSize:], key)
+	copy(buf[reqHeaderSize+len(key):], value)
+
+	// TODO I'm not sure the lock inside w's cost.
+	err = w.Write(ar, conn, buf)
+	if err != nil {
+		releaseAsyncResp(ar)
+		return nil, err
+	}
+	return ar, nil
+}
+
+func (c *Client) isClosed() bool {
+
+	return atomic.LoadInt64(&c.isRunning) == 0
+}
+
+func (c *Client) watchEvents(i int) {
+
+	defer c.wg.Done()
+
+	w := c.watchers[i]
+
+	respH := new(respHeader)
+	zeroTime := time.Unix(0, 0)
+
+	pending := make(map[uint64]*asyncResp)
+	var msgID uint64
+
+	for {
+
+		if c.isClosed() {
+			return
 		}
 
-		// After pop, try to put again.
-		select {
-		case c.requestsChan[idx] <- ar:
-			return ar, nil
-		default:
-			ReleaseAsyncResult(ar)
-			return nil, orpc.ErrRequestQueueOverflow // Queue is full.
+		// loop wait for any IO events
+		results, err := w.WaitIO()
+		if err != nil {
+			xlog.Errorf("client failed to wait io events: %s", err.Error()) // Socket closed in most case.
+			return
+		}
+
+		for _, res := range results {
+			switch res.Operation {
+			case gaio.OpRead: // read from server side completion event
+				ar := res.Context.(*asyncResp)
+				if res.Error == nil {
+					if ar.isHeader {
+						_ = respH.decode(res.Buffer[:respHeaderSize])
+						if respH.errno != 0 {
+							ar.err <- orpc.Errno(respH.errno).ToErr()
+							continue
+						} else {
+							if respH.bodySize == 0 {
+								ar.err <- nil
+								continue
+							} else {
+								pending[msgID] = ar
+
+								ar.msgID = msgID
+								ar.isHeader = false
+								valueLen := int(respH.bodySize)
+								value := xbytes.GetBytes(valueLen)
+								ar.resp = value
+								err = w.ReadFull(ar, res.Conn, value, zeroTime)
+								if err != nil {
+									xlog.Errorf("client failed to create read event: %s", err.Error())
+									return
+								}
+
+								msgID++
+							}
+						}
+					} else {
+						par := pending[ar.msgID]
+						par.resp = ar.resp
+						par.err <- nil
+
+						delete(pending, ar.msgID)
+						continue
+					}
+				} else {
+					ar.err <- xerrors.WithMessage(orpc.ErrConnection, res.Error.Error())
+					continue
+				}
+			case gaio.OpWrite: // write to server completion event, try to read response.
+				ar := res.Context.(*asyncResp)
+				if res.Error == nil {
+					// Passing context back to read for send message to client call.
+					ar.isHeader = true
+					err = w.ReadFull(ar, res.Conn, res.Buffer[:respHeaderSize], zeroTime)
+					if err != nil {
+						xlog.Errorf("client failed to create read event: %s", err.Error())
+						return
+					}
+				} else {
+					ar.err <- xerrors.WithMessage(orpc.ErrConnection, res.Error.Error())
+					continue
+				}
+			}
 		}
 	}
 }
@@ -313,11 +421,11 @@ func (c *Client) runReqWorker(i int) {
 	conn := c.connPool[i]
 	reqC := c.requestsChan[i]
 
-	reqH := new(reqHeader)
-	reqBuf := make([]byte, 64*1024)
-
 	respH := new(respHeader)
 	respHBuf := make([]byte, respHeaderSize)
+
+	reqH := new(reqHeader)
+	reqBuf := make([]byte, 64*1024)
 
 	var err error
 	for {
@@ -329,12 +437,12 @@ func (c *Client) runReqWorker(i int) {
 		select {
 		case ar = <-reqC:
 		default:
+			runtime.Gosched()
 			select {
+			case ar = <-reqC:
 			case <-c.stopChan:
 				break
-			case ar = <-reqC:
 			default:
-				runtime.Gosched()
 				continue
 			}
 		}
@@ -392,6 +500,77 @@ func (c *Client) runReqWorker(i int) {
 	}
 }
 
+// func (c *Client) writeWorker(idx int, pendingRequests map[uint64]*AsyncResult, pendingRequestsLock *sync.Mutex,
+// 	stopChan <-chan struct{}, done chan<- error) {
+//
+// 	var err error
+// 	defer func() { done <- err }()
+//
+// 	var msgID uint64 = 1
+//
+// 	reqC := c.requestsChan[idx]
+// 	w := c.connPool[idx]
+//
+// 	reqH := new(reqHeader)
+// 	reqBuf := make([]byte, 64*1024)
+//
+// 	for {
+// 		msgID++
+//
+// 		var ar *AsyncResult
+//
+// 		select {
+// 		case ar = <-reqC:
+// 		default:
+// 			// Give the last chance for ready goroutines filling c.requestsChan :)
+// 			runtime.Gosched()
+//
+// 			select {
+// 			case <-stopChan:
+// 				return
+// 			case ar = <-reqC:
+// 			default:
+// 				continue
+// 			}
+// 		}
+//
+// 		if ar == nil {
+// 			continue
+// 		}
+//
+// 		pendingRequestsLock.Lock()
+// 		n := len(pendingRequests)
+// 		pendingRequests[msgID] = ar
+// 		pendingRequestsLock.Unlock()
+//
+// 		if n > int(10*c.PendingRequests) {
+// 			xlog.Errorf("server: %s didn't return %d responses yet: closing connection", c.Addr, n)
+// 			err = orpc.ErrConnection
+// 			return
+// 		}
+//
+// 		reqH.method = ar.Method
+// 		reqH.keySize = uint16(len(ar.ReqKey))
+// 		reqH.dbID = c.DB
+// 		if ar.ReqValue != nil {
+// 			reqH.valueSize = uint32(len(ar.ReqValue))
+// 		} else {
+// 			reqH.valueSize = 0
+// 		}
+//
+// 		err = encodeToConn(w, reqH, ar.ReqKey, ar.ReqValue, reqBuf, true)
+// 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
+// 			ar.Err <- err
+// 			break
+// 		}
+//
+// 	}
+// }
+//
+// func (c *Client) readWorker(conn net.Conn) {
+//
+// }
+
 var asyncResultPool sync.Pool
 
 func AcquireAsyncResult() *AsyncResult {
@@ -412,4 +591,51 @@ func ReleaseAsyncResult(ar *AsyncResult) {
 	ar.Err = nil
 
 	asyncResultPool.Put(ar)
+}
+
+type asyncResp struct {
+	msgID    uint64
+	isHeader bool
+
+	resp []byte
+
+	err chan error
+}
+
+var asyncRespPool sync.Pool
+
+func acquireAsyncResp() *asyncResp {
+	v := asyncRespPool.Get()
+	if v == nil {
+		return &asyncResp{}
+	}
+	return v.(*asyncResp)
+}
+
+func releaseAsyncResp(ar *asyncResp) {
+	ar.msgID = 0
+	ar.isHeader = false
+
+	ar.resp = nil
+
+	ar.err = nil
+
+	asyncRespPool.Put(ar)
+}
+
+var reqHeaderPool sync.Pool
+
+func acquireReqHeader() *reqHeader {
+	v := reqHeaderPool.Get()
+	if v == nil {
+		return &reqHeader{}
+	}
+	return v.(*reqHeader)
+}
+
+func releaseReqHeader(h *reqHeader) {
+
+	h.reset()
+
+	reqHeaderPool.Put(h)
 }
