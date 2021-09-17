@@ -291,6 +291,7 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResp, err 
 	}
 
 	ar = acquireAsyncResp()
+	ar.err = make(chan error)
 
 	buf := xbytes.GetBytes(reqHeaderSize + len(key) + len(value))
 	defer xbytes.PutBytes(buf)
