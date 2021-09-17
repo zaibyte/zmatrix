@@ -129,3 +129,9 @@ func (h *respHeader) decode(buf []byte) error {
 func (h *respHeader) getValueSize() uint32 {
 	return h.bodySize
 }
+
+func (h *respHeader) reset() {
+	h.msgID = 0
+	h.errno = 0
+	h.bodySize = 0
+}

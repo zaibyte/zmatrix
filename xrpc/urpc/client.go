@@ -334,7 +334,7 @@ func (c *Client) watchEvents(i int) {
 	w := c.watchers[i]
 
 	respH := new(respHeader)
-	zeroTime := time.Unix(0, 0)
+	zeroTime := time.Time{}
 
 	pending := make(map[uint64]*asyncResp)
 	var msgID uint64
@@ -361,10 +361,12 @@ func (c *Client) watchEvents(i int) {
 						_ = respH.decode(res.Buffer[:respHeaderSize])
 						if respH.errno != 0 {
 							ar.err <- orpc.Errno(respH.errno).ToErr()
+							respH.reset()
 							continue
 						} else {
 							if respH.bodySize == 0 {
 								ar.err <- nil
+								respH.reset()
 								continue
 							} else {
 								pending[msgID] = ar
@@ -380,6 +382,7 @@ func (c *Client) watchEvents(i int) {
 									return
 								}
 
+								respH.reset()
 								msgID++
 							}
 						}
