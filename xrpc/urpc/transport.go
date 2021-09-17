@@ -71,7 +71,12 @@ func defaultDial(addr string) (conn net.Conn, err error) {
 }
 
 func unixDial(addr string) (conn net.Conn, err error) {
-	c, err := net.Dial("unix", addr)
+
+	a, err := net.ResolveUnixAddr("unix", addr)
+	if err != nil {
+		return nil, err
+	}
+	c, err := net.DialUnix("unix", nil, a)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +95,11 @@ func NewServer(addr string, h xrpc.ServerHandler) *Server {
 		Addr: addr,
 		Listener: &netListener{
 			F: func(addr string) (net.Listener, error) {
-				return net.Listen("unix", addr)
+				a, err := net.ResolveUnixAddr("unix", addr)
+				if err != nil {
+					return nil, err
+				}
+				return net.ListenUnix("unix", a)
 			},
 		},
 		Handler: h,
