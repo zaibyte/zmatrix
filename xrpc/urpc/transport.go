@@ -103,9 +103,6 @@ func NewServer(addr string, h xrpc.ServerHandler) *Server {
 			},
 		},
 		Handler: h,
-		// Sacrifice the number of Write() calls to the smallest
-		// possible latency, since it has higher priority in local IPC.
-		FlushDelay: -1,
 	}
 
 	return s

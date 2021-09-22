@@ -53,10 +53,6 @@ const (
 	//
 	// It's meaningless for setting it too big for unix domain socket.
 	DefaultPendingMessages = uint64(4096)
-
-	// DefaultFlushDelay Sacrifice the number of Write() calls to the smallest
-	// possible latency, since it has higher priority in local IPC.
-	DefaultFlushDelay = time.Duration(-1)
 )
 
 // compactSetBatchReq compacts keys & values into one byte slice for sending to server.

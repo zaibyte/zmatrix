@@ -41,6 +41,7 @@ package urpc
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"runtime"
 	"sync"
@@ -52,8 +53,6 @@ import (
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xbytes"
 	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zaipkg/xtime"
-
 	"github.com/panjf2000/ants/v2"
 )
 
@@ -82,15 +81,6 @@ type Server struct {
 	// Default is DefaultBufferSize.
 	RecvBufferSize int
 
-	// The maximum delay between response flushes to clients.
-	//
-	// Negative values lead to immediate requests' sending to the client
-	// without their buffering. This minimizes rpc latency at the cost
-	// of higher CPU and network usage.
-	//
-	// Default is DefaultFlushDelay.
-	FlushDelay time.Duration
-
 	// The server obtains new client connections via Listener.Accept().
 	//
 	// Override the Listener if you want custom underlying transport
@@ -111,7 +101,7 @@ type Server struct {
 const (
 	// DefaultConcurrency is the default number of concurrent rpc calls
 	// the server can process.
-	DefaultConcurrency = 4096 // 4096 is enough to hold 256 default clients.
+	DefaultConcurrency = 4096 // 4096 is enough to hold 1024 default clients, far away from enough for signle node.
 	// DefaultServerSendBufferSize is the default size for Server send buffers.
 	DefaultServerSendBufferSize = 64 * 1024
 	// DefaultServerRecvBufferSize is the default size for Server receive buffers.
@@ -142,14 +132,15 @@ func (s *Server) Start() error {
 	if s.RecvBufferSize <= 0 {
 		s.RecvBufferSize = DefaultServerRecvBufferSize
 	}
-	if s.FlushDelay == 0 {
-		s.FlushDelay = DefaultFlushDelay
-	}
 
 	if s.Listener == nil {
 		s.Listener = &netListener{
 			F: func(addr string) (net.Listener, error) {
-				return net.Listen("unix", addr)
+				a, err := net.ResolveUnixAddr("unix", addr)
+				if err != nil {
+					return nil, err
+				}
+				return net.ListenUnix("unix", a)
 			},
 		}
 	}
@@ -159,7 +150,7 @@ func (s *Server) Start() error {
 	}
 
 	var err error
-	s.handlerPool, err = ants.NewPool(s.Concurrency, ants.WithLogger(xlog.GetLogger()), ants.WithExpiryDuration(3*time.Second), ants.WithPreAlloc(true))
+	s.handlerPool, err = ants.NewPool(s.Concurrency, ants.WithLogger(xlog.GetLogger()), ants.WithExpiryDuration(3*time.Second), ants.WithPreAlloc(false))
 	if err != nil {
 		return err
 	}
@@ -267,8 +258,9 @@ type serverMessage struct {
 	reqValue []byte
 	dbID     uint32
 
-	resp []byte
-	err  error
+	resp       []byte
+	respCloser io.Closer
+	err        error
 }
 
 var serverMessagePool = &sync.Pool{
@@ -285,6 +277,7 @@ func (s *serverMessage) reset() {
 	s.dbID = 0
 
 	s.resp = nil
+	s.respCloser = nil
 	s.err = nil
 }
 
@@ -350,14 +343,18 @@ func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
 func (s *Server) serveRequest(responsesChan chan<- *serverMessage, stopChan <-chan struct{}, m *serverMessage) {
 
 	if m.err == nil {
-		resp, err := s.callHandlerWithRecover(m.method, m.dbID, m.reqKey, m.reqValue)
+		resp, closer, err := s.callHandlerWithRecover(m.method, m.dbID, m.reqKey, m.reqValue)
 		m.resp = resp
+		m.respCloser = closer
+		m.err = err
 		if err != nil {
 			m.resp = nil
 		}
-		m.err = err
 	}
 
+	// req bytes is got by xbytes pool, need put back.
+	// If it has key, the bytes must be got start from it.
+	// Otherwise, the bytes must be got start from value.
 	if m.reqKey != nil {
 		xbytes.PutBytes(m.reqKey)
 	} else {
@@ -379,7 +376,7 @@ func (s *Server) serveRequest(responsesChan chan<- *serverMessage, stopChan <-ch
 	}
 }
 
-func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqValue []byte) (resp []byte, err error) {
+func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqValue []byte) (resp []byte, closer io.Closer, err error) {
 	defer func() {
 		if x := recover(); x != nil {
 			stackTrace := make([]byte, 1<<20)
@@ -394,31 +391,20 @@ func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqVa
 	}
 	if method == setMethod {
 		err = s.Handler.Set(dbID, reqKey, reqValue)
-		return nil, err
+		return nil, nil, err
 	}
 	if method == setBatchMethod {
 		keys, values := extraSetBatchReq(reqValue)
 		err = s.Handler.SetBatch(dbID, keys, values)
-		return nil, err
+		return nil, nil, err
 	}
 
-	return nil, orpc.ErrNotImplemented
-}
-
-func isServerStop(stopChan <-chan struct{}) bool {
-	select {
-	case <-stopChan:
-		return true
-	default:
-		return false
-	}
+	return nil, nil, orpc.ErrNotImplemented
 }
 
 func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, stopChan <-chan struct{}, done chan<- struct{}) {
 	defer func() { close(done) }()
 
-	t := time.NewTimer(s.FlushDelay)
-	var flushChan <-chan time.Time
 	enc := newEncoder(w, s.SendBufferSize)
 	msg := new(msgBytes)
 	rh := new(respHeader)
@@ -437,20 +423,7 @@ func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, s
 			case <-stopChan:
 				return
 			case m = <-responsesChan:
-			case <-flushChan:
-				if err := enc.flush(); err != nil {
-					if !isServerStop(stopChan) {
-						xlog.Errorf("server cannot flush requests to: %s: %s", w.RemoteAddr().String(), err)
-					}
-					return
-				}
-				flushChan = nil
-				continue
 			}
-		}
-
-		if flushChan == nil {
-			flushChan = xtime.GetTimerEvent(t, s.FlushDelay)
 		}
 
 		resp := m.resp
@@ -465,15 +438,20 @@ func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, s
 		msg.header = rh
 		msg.value = resp
 
-		m.reset()
-		serverMessagePool.Put(m)
-
-		if err := enc.encodeBytesPool(msg, headerBuf); err != nil {
+		if err := enc.encode(msg, headerBuf); err != nil {
 
 			xlog.Errorf("failed to send response to: %s: %s", w.RemoteAddr().String(), err)
 			return
 		}
 
-		msg.value = nil
+		if m.respCloser != nil {
+			_ = m.respCloser.Close()
+		}
+
+		m.reset()
+		serverMessagePool.Put(m)
+
+		msg.reset()
+		rh.reset()
 	}
 }

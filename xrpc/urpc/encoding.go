@@ -18,8 +18,6 @@ import (
 	"bufio"
 	"io"
 	"net"
-
-	"g.tesamc.com/IT/zaipkg/xbytes"
 )
 
 type decoder struct {
@@ -93,39 +91,6 @@ func (e *encoder) encode(msg *msgBytes, headerBuf []byte) error {
 	}
 
 	return e.bw.Flush()
-}
-
-// encodeBytesPool encodes msg which value is get from xbytes pool.
-func (e *encoder) encodeBytesPool(msg *msgBytes, headerBuf []byte) error {
-	var hbuf []byte
-	_, ok := msg.header.(*reqHeader)
-	if ok {
-		hbuf = headerBuf[:reqHeaderSize]
-	} else {
-		hbuf = headerBuf[:respHeaderSize]
-	}
-	_ = msg.header.encode(hbuf)
-	_, err := e.bw.Write(hbuf)
-	if err != nil {
-		return err
-	}
-
-	if msg.key != nil {
-		_, err = e.bw.Write(msg.key)
-		if err != nil {
-			return err
-		}
-	}
-
-	if msg.value != nil {
-		_, err = e.bw.Write(msg.value)
-		xbytes.PutBytes(msg.value)
-		if err != nil {
-			return err
-		}
-	}
-
-	return err
 }
 
 func (e *encoder) flush() error {

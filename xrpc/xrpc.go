@@ -1,6 +1,8 @@
 package xrpc
 
 import (
+	"io"
+
 	"g.tesamc.com/IT/zmatrix/db"
 )
 
@@ -24,6 +26,6 @@ type StartStoper interface {
 // ServerHandler is the xRPC handler.
 type ServerHandler interface {
 	Set(db uint32, key, value []byte) error
-	Get(db uint32, key []byte) (value []byte, err error)
+	Get(db uint32, key []byte) (value []byte, closer io.Closer, err error)
 	SetBatch(db uint32, keys, values [][]byte) error
 }
