@@ -44,7 +44,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -57,16 +62,24 @@ import (
 	"github.com/templexxx/tsc"
 )
 
+var testSocketDir string
+
 var randVal = directio.AlignedBlock(1024)
 
 func init() {
 	rand.Seed(tsc.UnixNano())
 	rand.Read(randVal)
+
+	var err error
+	testSocketDir, err = ioutil.TempDir(os.TempDir(), "test-socket")
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 type testHandler struct {
 	setFn      func(db uint32, key, value []byte) error
-	getFn      func(db uint32, key []byte) (value []byte, err error)
+	getFn      func(db uint32, key []byte) (value []byte, closer io.Closer, err error)
 	setBatchFn func(db uint32, keys, values [][]byte) error
 }
 
@@ -74,7 +87,7 @@ func (h *testHandler) Set(db uint32, key, value []byte) error {
 	return h.setFn(db, key, value)
 }
 
-func (h *testHandler) Get(db uint32, key []byte) (value []byte, err error) {
+func (h *testHandler) Get(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
 	return h.getFn(db, key)
 }
 
@@ -87,8 +100,8 @@ func nopHandler() *testHandler {
 		setFn: func(db uint32, key, value []byte) error {
 			return nil
 		},
-		getFn: func(db uint32, key []byte) (value []byte, err error) {
-			return nil, nil
+		getFn: func(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
+			return nil, nil, nil
 		},
 		setBatchFn: func(db uint32, keys, values [][]byte) error {
 			return nil
@@ -97,7 +110,11 @@ func nopHandler() *testHandler {
 }
 
 func getRandomAddr() string {
-	return fmt.Sprintf("./test-%d.sock", xrand.Uint32n(20000)+10000)
+	return filepath.Join(testSocketDir, fmt.Sprintf("%d.sock", xrand.Uint32n(777777)))
+}
+
+func cleanSockets() {
+	_ = os.RemoveAll(testSocketDir)
 }
 
 func getRandomTCPAddr() string {
@@ -112,6 +129,7 @@ func newTestClient(addr string) *Client {
 
 func TestClient_Get(t *testing.T) {
 	addr := getRandomAddr()
+	defer cleanSockets()
 
 	exp := make(map[uint64][]byte) // For testing, key is an uint64.
 
@@ -123,12 +141,13 @@ func TestClient_Get(t *testing.T) {
 		exp[k] = o
 		return nil
 	}
-	h.getFn = func(db uint32, key []byte) (value []byte, err error) {
+	h.getFn = func(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
 		k := binary.LittleEndian.Uint64(key)
 		o := exp[k]
 		size := len(o)
-		value = xbytes.GetBytes(int(size))
+		value = xbytes.GetBytes(size)
 		copy(value, o)
+		closer = xbytes.PoolBytesCloser{P: value}
 		return
 	}
 	h.setBatchFn = func(db uint32, keys, values [][]byte) error {
@@ -204,6 +223,7 @@ func TestClient_Get(t *testing.T) {
 
 func TestClient_Get_Concurrency(t *testing.T) {
 	addr := getRandomAddr()
+	defer cleanSockets()
 
 	exp := new(sync.Map)
 
@@ -215,17 +235,18 @@ func TestClient_Get_Concurrency(t *testing.T) {
 		exp.Store(binary.LittleEndian.Uint64(key), o)
 		return nil
 	}
-	h.getFn = func(db uint32, key []byte) (value []byte, err error) {
+	h.getFn = func(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
 
 		o, ok := exp.Load(binary.LittleEndian.Uint64(key))
 		if !ok {
-			return nil, orpc.ErrNotFound
+			return nil, nil, orpc.ErrNotFound
 		}
 		v := o.([]byte)
 
 		value = xbytes.GetBytes(len(v))
 
 		copy(value, o.([]byte))
+		closer = xbytes.PoolBytesCloser{P: value}
 		return
 	}
 

@@ -40,6 +40,7 @@
 package urpc
 
 import (
+	"io"
 	"math/rand"
 	"testing"
 	"time"
@@ -94,8 +95,9 @@ func newBenchGetHandler() *testHandler {
 		setFn: func(db uint32, key, value []byte) error {
 			return nil
 		},
-		getFn: func(db uint32, key []byte) (value []byte, err error) {
+		getFn: func(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
 			value = xbytes.GetBytes(1024)
+			closer = xbytes.PoolBytesCloser{P: value}
 			return
 		},
 	}

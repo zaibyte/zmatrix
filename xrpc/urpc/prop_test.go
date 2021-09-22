@@ -10,59 +10,45 @@ import (
 	"testing"
 	"time"
 
-	"github.com/templexxx/tsc"
-	"github.com/xtaci/gaio"
+	"g.tesamc.com/IT/zaipkg/xtest"
 
 	"github.com/elastic/go-hdrhistogram"
+	"github.com/templexxx/tsc"
 )
 
-func Test_AIO(t *testing.T) {
-
-	gaio.NewWatcher()
-
-}
-
-func echoServer(w *gaio.Watcher) {
-	for {
-		// loop wait for any IO events
-		results, err := w.WaitIO()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		for _, res := range results {
-			switch res.Operation {
-			case gaio.OpRead: // read completion event
-				if res.Error == nil {
-					// send back everything, we won't start to read again until write completes.
-					// submit an async write request
-					w.Write(nil, res.Conn, res.Buffer[:res.Size])
-				}
-			case gaio.OpWrite: // write completion event
-				if res.Error == nil {
-					// since write has completed, let's start read on this conn again
-					w.Read(nil, res.Conn, res.Buffer[:cap(res.Buffer)])
-				}
-			}
-		}
-	}
-}
-
+// === RUN   Test_Lat_UDS
+// ping-pong with: 128 bytes min: 4736, avg: 6414.33, max: 48383, iops: 155656.26
+// percentiles (nsec):
+// |  1.00th=[4863],  5.00th=[4927], 10.00th=[4927], 20.00th=[4927],
+// | 30.00th=[4991], 40.00th=[5055], 50.00th=[5119], 60.00th=[5183],
+// | 70.00th=[5183], 80.00th=[6719], 90.00th=[9023], 95.00th=[15999],
+// | 99.00th=[18687], 99.50th=[18687], 99.90th=[22207], 99.95th=[27455],
+// | 99.99th=[36479]
+// --- PASS: Test_Lat_UDS (0.74s)
 func Test_Lat_UDS(t *testing.T) {
 
-	// if !xtest.IsPropEnabled() {
-	// 	t.Skip("skip prop testing")
-	// }
+	if !xtest.IsPropEnabled() {
+		t.Skip("skip prop testing")
+	}
 
 	testLatency(true, getRandomAddr(), "", 128, 100000)
+	defer cleanSockets()
 }
 
+// === RUN   Test_Lat_TCP
+// ping-pong with: 128 bytes min: 7808, avg: 10862.77, max: 115711, iops: 91921.57
+// percentiles (nsec):
+// |  1.00th=[7935],  5.00th=[7935], 10.00th=[7935], 20.00th=[8191],
+// | 30.00th=[8255], 40.00th=[8319], 50.00th=[8319], 60.00th=[8447],
+// | 70.00th=[8511], 80.00th=[11391], 90.00th=[21119], 95.00th=[26367],
+// | 99.00th=[30719], 99.50th=[31039], 99.90th=[39935], 99.95th=[43519],
+// | 99.99th=[62015]
+// --- PASS: Test_Lat_TCP (1.19s)
 func Test_Lat_TCP(t *testing.T) {
 
-	// if !xtest.IsPropEnabled() {
-	// 	t.Skip("skip prop testing")
-	// }
+	if !xtest.IsPropEnabled() {
+		t.Skip("skip prop testing")
+	}
 
 	testLatency(false, "", getRandomTCPAddr(), 128, 100000)
 }
@@ -160,6 +146,7 @@ func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings 
 	time.Sleep(50 * time.Millisecond)
 }
 
+// Single thread request.
 func TestClient_Set_Latency_Single(t *testing.T) {
 
 	// if !xtest.IsPropEnabled() {
@@ -167,6 +154,7 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 	// }
 
 	addr := getRandomAddr()
+	defer cleanSockets()
 
 	s := NewServer(addr, nopHandler())
 
@@ -178,7 +166,6 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 	n := 100000
 
 	c := newTestClient(addr)
-	c.Conns = 1
 
 	value := make([]byte, 128)
 	rand.Read(value)
@@ -207,6 +194,7 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 	printLat("set", lat, cost)
 }
 
+// Multi threads request.
 func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
 	// if !xtest.IsPropEnabled() {
@@ -214,6 +202,7 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 	// }
 
 	addr := getRandomAddr()
+	defer cleanSockets()
 
 	s := NewServer(addr, nopHandler())
 
@@ -222,10 +211,9 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 	}
 	defer s.Stop(nil)
 
-	threads := 16
+	threads := 64
 
 	c := newTestClient(addr)
-	c.Conns = uint64(threads)
 
 	value := make([]byte, 128)
 	rand.Read(value)

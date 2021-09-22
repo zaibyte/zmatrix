@@ -42,7 +42,6 @@ package urpc
 import (
 	"encoding/binary"
 	"io"
-	"time"
 
 	"g.tesamc.com/IT/zaipkg/xbytes"
 )
@@ -89,7 +88,7 @@ func compactSetBatchReq(keys, values [][]byte) ([]byte, io.Closer) {
 		offset += vl
 	}
 
-	return v, PoolBytesCloser{v}
+	return v, xbytes.PoolBytesCloser{P: v}
 }
 
 func extraSetBatchReq(c []byte) (keys, values [][]byte) {
@@ -111,18 +110,4 @@ func extraSetBatchReq(c []byte) (keys, values [][]byte) {
 		offset += vl
 	}
 	return
-}
-
-type PoolBytesCloser struct {
-	p []byte
-}
-
-func (r PoolBytesCloser) Close() error {
-	xbytes.PutBytes(r.p)
-	return nil
-}
-
-// durationToSpins coverts time.Duration to spins.
-func durationToSpins(t time.Duration) uint32 {
-	return uint32(int64(t) / (30 * int64(time.Nanosecond)))
 }

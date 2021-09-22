@@ -113,7 +113,7 @@ type Client struct {
 	stopChan chan struct{}
 }
 
-var _client xrpc.Client = new(Client)
+var _ xrpc.Client = new(Client)
 
 const (
 	DefaultDB = uint32(1)
@@ -265,7 +265,7 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 	if ar.respValue != nil {
 		v := ar.respValue
 		releaseAsyncResult(ar)
-		return v, PoolBytesCloser{v}, nil
+		return v, xbytes.PoolBytesCloser{P: v}, nil
 	}
 
 	return nil, nil, nil
