@@ -182,7 +182,7 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 	c := newTestClient(addr)
 	c.Conns = 1
 
-	value := make([]byte, 1024)
+	value := make([]byte, 128)
 	rand.Read(value)
 	key := make([]byte, 8)
 	rand.Read(key)
@@ -229,7 +229,7 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 	c := newTestClient(addr)
 	c.Conns = uint64(threads)
 
-	value := make([]byte, 1024)
+	value := make([]byte, 128)
 	rand.Read(value)
 	key := make([]byte, 8)
 	rand.Read(key)

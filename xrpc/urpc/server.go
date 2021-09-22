@@ -318,7 +318,7 @@ func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
 
 		n := int(rh.keySize) + int(rh.valueSize) // At least has key or value.
 		body := xbytes.GetBytes(n)
-		err = dec.decodeBody(body, n)
+		err = dec.decodeBody(body)
 		if err != nil {
 			xlog.Errorf("failed to read request key & value from %s: %s", r.RemoteAddr().String(), err.Error())
 			xbytes.PutBytes(body)

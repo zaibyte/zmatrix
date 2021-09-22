@@ -39,35 +39,9 @@ func (d *decoder) decodeHeader(buf []byte, h header) error {
 	return h.decode(buf)
 }
 
-func (d *decoder) decodeBody(buf []byte, n int) error {
-	_, err := readAtLeast(d.br, buf, n)
+func (d *decoder) decodeBody(buf []byte) error {
+	_, err := io.ReadFull(d.br, buf)
 	return err
-}
-
-// readAtLeast reads from r into buf until it has read at least min bytes.
-// It returns the number of bytes copied and an error if fewer bytes were read.
-// The error is EOF only if no bytes were read.
-// If an EOF happens after reading fewer than min bytes,
-// readAtLeast returns ErrUnexpectedEOF.
-// If min is greater than the length of buf, ReadAtLeast returns ErrShortBuffer.
-// On return, n >= min if and only if Err == nil.
-// If r returns an error having read at least min bytes, the error is dropped.
-func readAtLeast(r io.Reader, buf []byte, min int) (n int, err error) {
-	if len(buf) < min {
-		return 0, io.ErrShortBuffer
-	}
-	for n < min && err == nil {
-		var nn int
-		nn, err = r.Read(buf[n:min])
-		n += nn
-	}
-
-	if n >= min {
-		err = nil
-	} else if n > 0 && err == io.EOF {
-		err = io.ErrUnexpectedEOF
-	}
-	return
 }
 
 type encoder struct {
@@ -82,6 +56,12 @@ type msgBytes struct {
 	header header
 	key    []byte
 	value  []byte
+}
+
+func (m *msgBytes) reset() {
+	m.header = nil
+	m.key = nil
+	m.value = nil
 }
 
 func (e *encoder) encode(msg *msgBytes, headerBuf []byte) error {
@@ -111,7 +91,8 @@ func (e *encoder) encode(msg *msgBytes, headerBuf []byte) error {
 			return err
 		}
 	}
-	return err
+
+	return e.bw.Flush()
 }
 
 // encodeBytesPool encodes msg which value is get from xbytes pool.
@@ -149,38 +130,4 @@ func (e *encoder) encodeBytesPool(msg *msgBytes, headerBuf []byte) error {
 
 func (e *encoder) flush() error {
 	return e.bw.Flush()
-}
-
-func encodeToConn(conn net.Conn, h header, key, value, buf []byte, isReq bool) error {
-
-	bufSize := 0
-	headerSize := 0
-	if isReq {
-		headerSize = reqHeaderSize
-	} else {
-		headerSize = respHeaderSize
-	}
-
-	bufSize += headerSize
-	bufSize += len(key)
-	bufSize += len(value)
-
-	usingPool := false
-	if bufSize > len(buf) {
-		buf = xbytes.GetBytes(bufSize)
-		usingPool = true
-	}
-	buf = buf[:bufSize]
-	defer func() {
-		if usingPool {
-			xbytes.PutBytes(buf)
-		}
-	}()
-
-	_ = h.encode(buf[:headerSize])
-	copy(buf[headerSize:], key)
-	copy(buf[headerSize+len(key):], value)
-
-	_, err := conn.Write(buf)
-	return err
 }

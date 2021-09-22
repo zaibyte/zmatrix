@@ -45,9 +45,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	"github.com/xtaci/gaio"
 
 	"g.tesamc.com/IT/zaipkg/xmath"
 
@@ -75,10 +72,8 @@ import (
 type Client struct {
 	isRunning int64
 
-	DB uint32
-
-	// Server address to connect to.
-	Addr string
+	DB   uint32 // One Client could only connect to one Database.
+	Addr string // Server's address.
 
 	// The number of concurrent connections the client should establish
 	// to the sever.
@@ -89,7 +84,7 @@ type Client struct {
 	//
 	// The number of pending requests should exceed the expected number
 	// of concurrent goroutines calling client's methods.
-	// Otherwise a lot of orpc.ErrRequestQueueOverflow errors may appear.
+	// Otherwise, a lot of orpc.ErrRequestQueueOverflow errors may appear.
 	//
 	// Default is DefaultPendingMessages.
 	PendingRequests uint64
@@ -98,13 +93,21 @@ type Client struct {
 	// to the server.
 	// The client passes Client.Addr into Dial().
 	//
-	// By default it returns UNIX connections established to the Client.Addr.
+	// By default, it returns UNIX connections established to the Client.Addr.
 	Dial DialFunc
 
+	// Size of send buffer per each underlying connection in bytes.
+	// Default value is DefaultClientSendBufferSize.
+	SendBufferSize int
+
+	// Size of recv buffer per each underlying connection in bytes.
+	// Default value is DefaultClientRecvBufferSize.
+	RecvBufferSize int
+
+	// Each conn will have its own request chan for reducing conviction of chan.
 	nextConn     uint64
 	connPool     []net.Conn
-	watchers     []*gaio.Watcher // Each connection has a watcher for breaking up one chan's limitation.
-	requestsChan []chan *AsyncResult
+	requestsChan []chan *asyncResult
 
 	wg       sync.WaitGroup
 	stopChan chan struct{}
@@ -112,19 +115,14 @@ type Client struct {
 
 var _client xrpc.Client = new(Client)
 
-// AsyncResult is a result returned from Client.callAsync().
-type AsyncResult struct {
-	Method   uint8
-	ReqKey   []byte
-	ReqValue []byte
-
-	RespValue []byte
-
-	Err chan error
-}
-
 const (
 	DefaultDB = uint32(1)
+
+	// DefaultClientSendBufferSize is the default size for Client send buffers.
+	DefaultClientSendBufferSize = 64 * 1024
+
+	// DefaultClientRecvBufferSize is the default size for Client receive buffers.
+	DefaultClientRecvBufferSize = 64 * 1024
 
 	// DefaultClientConns is the default connection numbers for Client.
 	DefaultClientConns = uint64(16)
@@ -141,20 +139,20 @@ func (c *Client) Start() error {
 	config.Adjust(&c.DB, DefaultDB)
 	config.Adjust(&c.PendingRequests, DefaultPendingMessages)
 	config.Adjust(&c.Conns, DefaultClientConns)
+	config.Adjust(&c.RecvBufferSize, DefaultClientRecvBufferSize)
+	config.Adjust(&c.SendBufferSize, DefaultClientSendBufferSize)
 
-	c.PendingRequests = xmath.NextPower2(c.PendingRequests / 2)
+	c.PendingRequests = xmath.NextPower2(c.PendingRequests)
 
 	// Start write index at the value before 0
 	// to allow the first conn to use AddUint64
 	// and still have a beginning index of 0
 	c.nextConn = ^c.nextConn
-	c.requestsChan = make([]chan *AsyncResult, c.Conns)
+	c.requestsChan = make([]chan *asyncResult, c.Conns)
 	for i := range c.requestsChan {
-		c.requestsChan[i] = make(chan *AsyncResult, c.PendingRequests/2/c.Conns)
+		c.requestsChan[i] = make(chan *asyncResult, c.PendingRequests/c.Conns)
 	}
-
 	c.connPool = make([]net.Conn, c.Conns)
-	c.watchers = make([]*gaio.Watcher, c.Conns)
 
 	if c.Dial == nil {
 		c.Dial = defaultDial
@@ -166,14 +164,8 @@ func (c *Client) Start() error {
 			c.closeConn()
 			return err
 		}
-		watcher, err := gaio.NewWatcher()
-		if err != nil {
-			c.closeConn()
-			return err
-		}
 
 		c.connPool[i] = conn
-		c.watchers[i] = watcher
 	}
 
 	c.stopChan = make(chan struct{})
@@ -182,7 +174,7 @@ func (c *Client) Start() error {
 
 	for i := uint64(0); i < c.Conns; i++ {
 		c.wg.Add(1)
-		go c.watchEvents(int(i))
+		go c.handleConn(int(i))
 	}
 
 	return nil
@@ -195,12 +187,6 @@ func (c *Client) closeConn() {
 			_ = co.Close()
 		}
 	}
-
-	for _, wa := range c.watchers {
-		if wa != nil {
-			_ = wa.Close()
-		}
-	}
 }
 
 func (c *Client) Stop(err error) {
@@ -210,9 +196,9 @@ func (c *Client) Stop(err error) {
 
 	close(c.stopChan)
 
-	c.wg.Wait()
-
 	c.closeConn()
+
+	c.wg.Wait()
 
 	if err == nil {
 		err = orpc.ErrServiceClosed
@@ -222,7 +208,7 @@ func (c *Client) Stop(err error) {
 		close(reqC)
 		for ar := range reqC {
 			select {
-			case ar.Err <- err:
+			case ar.err <- err:
 			default: // Avoiding blocking.
 			}
 		}
@@ -264,7 +250,7 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 		return nil, nil, orpc.ErrServiceClosed
 	}
 
-	var ar *asyncResp
+	var ar *asyncResult
 	var err error
 	if ar, err = c.callAsync(method, key, value); err != nil {
 		return nil, nil, err
@@ -272,374 +258,259 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 
 	err = <-ar.err
 	if err != nil {
-		releaseAsyncResp(ar)
+		releaseAsyncResult(ar)
 		return nil, nil, err
 	}
-	if ar.resp != nil {
-		v := ar.resp
-		releaseAsyncResp(ar)
+	if ar.respValue != nil {
+		v := ar.respValue
+		releaseAsyncResult(ar)
 		return v, PoolBytesCloser{v}, nil
 	}
 
 	return nil, nil, nil
 }
 
-func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResp, err error) {
+func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, err error) {
 
 	if method != setMethod && method != getMethod {
 		return nil, orpc.ErrNotImplemented
 	}
 
-	ar = acquireAsyncResp()
+	ar = acquireAsyncResult()
+	ar.method = method
+	ar.reqKey = key
+	ar.reqValue = value
 	ar.err = make(chan error)
-
-	buf := xbytes.GetBytes(reqHeaderSize + len(key) + len(value))
-	defer xbytes.PutBytes(buf)
 
 	c.nextConn++
 	idx := c.nextConn % c.Conns
 
-	w := c.watchers[idx]
+	reqC := c.requestsChan[idx]
+
+	select {
+	case reqC <- ar:
+		return ar, nil
+	default:
+		// Try substituting the oldest async request by the new one
+		// on requests' queue overflow.
+		// This increases the chances for new request to succeed
+		// without timeout.
+		select {
+		case ar2 := <-reqC:
+			ar2.err <- orpc.ErrRequestQueueOverflow
+		default:
+		}
+
+		// After pop, try to put again.
+		select {
+		case reqC <- ar:
+			return ar, nil
+		default:
+			// RequestsChan is filled, release it since m wasn't exposed to the caller yet.
+			releaseAsyncResult(ar)
+			return nil, orpc.ErrRequestQueueOverflow
+		}
+	}
+}
+
+func (c *Client) handleConn(idx int) {
+
 	conn := c.connPool[idx]
+	reqChan := c.requestsChan[idx]
 
-	h := acquireReqHeader()
-	defer releaseReqHeader(h)
+	stopChan := make(chan struct{})
 
-	h.method = method
-	h.dbID = c.DB
-	h.keySize = uint16(len(key))
-	h.valueSize = uint32(len(value))
-	h.encode(buf[:reqHeaderSize])
+	pendingRequests := make(map[uint64]*asyncResult, c.PendingRequests)
+	var pendingRequestsLock sync.Mutex // Only two goroutine here, map with mutex is faster than sync.Map.
 
-	copy(buf[reqHeaderSize:], key)
-	copy(buf[reqHeaderSize+len(key):], value)
+	writerDone := make(chan error, 1)
+	go c.writeWorker(conn, reqChan, pendingRequests, &pendingRequestsLock, stopChan, writerDone)
 
-	// TODO I'm not sure the lock inside w's cost.
-	err = w.Write(ar, conn, buf)
-	if err != nil {
-		releaseAsyncResp(ar)
-		return nil, err
-	}
-	return ar, nil
-}
-
-func (c *Client) isClosed() bool {
-
-	return atomic.LoadInt64(&c.isRunning) == 0
-}
-
-func (c *Client) watchEvents(i int) {
-
-	defer c.wg.Done()
-
-	w := c.watchers[i]
-
-	respH := new(respHeader)
-	zeroTime := time.Time{}
-
-	pending := make(map[uint64]*asyncResp)
-	var msgID uint64
-
-	for {
-
-		if c.isClosed() {
-			return
-		}
-
-		// loop wait for any IO events
-		results, err := w.WaitIO()
-		if err != nil {
-			xlog.Errorf("client failed to wait io events: %s", err.Error()) // Socket closed in most case.
-			return
-		}
-
-		for _, res := range results {
-			switch res.Operation {
-			case gaio.OpRead: // read from server side completion event
-				ar := res.Context.(*asyncResp)
-				if res.Error == nil {
-					if ar.isHeader {
-						_ = respH.decode(res.Buffer[:respHeaderSize])
-						if respH.errno != 0 {
-							ar.err <- orpc.Errno(respH.errno).ToErr()
-							respH.reset()
-							continue
-						} else {
-							if respH.bodySize == 0 {
-								ar.err <- nil
-								respH.reset()
-								continue
-							} else {
-								pending[msgID] = ar
-
-								ar.msgID = msgID
-								ar.isHeader = false
-								valueLen := int(respH.bodySize)
-								value := xbytes.GetBytes(valueLen)
-								ar.resp = value
-								err = w.ReadFull(ar, res.Conn, value, zeroTime)
-								if err != nil {
-									xlog.Errorf("client failed to create read event: %s", err.Error())
-									return
-								}
-
-								respH.reset()
-								msgID++
-							}
-						}
-					} else {
-						par := pending[ar.msgID]
-						par.resp = ar.resp
-						par.err <- nil
-
-						delete(pending, ar.msgID)
-						continue
-					}
-				} else {
-					ar.err <- xerrors.WithMessage(orpc.ErrConnection, res.Error.Error())
-					continue
-				}
-			case gaio.OpWrite: // write to server completion event, try to read response.
-				ar := res.Context.(*asyncResp)
-				if res.Error == nil {
-					// Passing context back to read for send message to client call.
-					ar.isHeader = true
-					err = w.ReadFull(ar, res.Conn, res.Buffer[:respHeaderSize], zeroTime)
-					if err != nil {
-						xlog.Errorf("client failed to create read event: %s", err.Error())
-						return
-					}
-				} else {
-					ar.err <- xerrors.WithMessage(orpc.ErrConnection, res.Error.Error())
-					continue
-				}
-			}
-		}
-	}
-}
-
-func (c *Client) runReqWorker(i int) {
-
-	defer c.wg.Done()
-
-	conn := c.connPool[i]
-	reqC := c.requestsChan[i]
-
-	respH := new(respHeader)
-	respHBuf := make([]byte, respHeaderSize)
-
-	reqH := new(reqHeader)
-	reqBuf := make([]byte, 64*1024)
+	readerDone := make(chan error, 1)
+	go c.readWorker(conn, pendingRequests, &pendingRequestsLock, readerDone)
 
 	var err error
-	for {
-		if atomic.LoadInt64(&c.isRunning) != 1 {
-			break
-		}
+	select {
+	case err = <-writerDone:
+		close(stopChan)
+		_ = conn.Close()
+		<-readerDone
+	case err = <-readerDone:
+		close(stopChan)
+		_ = conn.Close()
+		<-writerDone
+	case <-c.stopChan:
+		close(stopChan)
+		_ = conn.Close()
+		<-readerDone
+		<-writerDone
+	}
 
-		var ar *AsyncResult
+	for _, ar := range pendingRequests {
+		select {
+		case ar.err <- err:
+		default: // Avoiding blocking.
+		}
+	}
+}
+
+func (c *Client) writeWorker(conn net.Conn, reqC chan *asyncResult,
+	pendingRequests map[uint64]*asyncResult, pendingRequestsLock *sync.Mutex,
+	stopChan <-chan struct{}, done chan<- error) {
+
+	var err error
+	defer func() { done <- err }()
+
+	var msgID uint64 = 1
+
+	reqH := new(reqHeader)
+	headerBuf := make([]byte, reqHeaderSize)
+	enc := newEncoder(conn, c.SendBufferSize)
+	msg := new(msgBytes)
+
+	for {
+		msgID++
+
+		var ar *asyncResult
+
 		select {
 		case ar = <-reqC:
 		default:
+			// Give the last chance for ready goroutines filling c.requestsChan :)
 			runtime.Gosched()
+
 			select {
+			case <-stopChan:
+				return
 			case ar = <-reqC:
-			case <-c.stopChan:
-				break
 			default:
 				continue
 			}
 		}
+
 		if ar == nil {
 			continue
 		}
 
-		reqH.method = ar.Method
-		reqH.keySize = uint16(len(ar.ReqKey))
+		pendingRequestsLock.Lock()
+		pendingRequests[msgID] = ar
+		pendingRequestsLock.Unlock()
+
+		reqH.method = ar.method
+		reqH.msgID = msgID
+		reqH.keySize = uint16(len(ar.reqKey))
 		reqH.dbID = c.DB
-		if ar.ReqValue != nil {
-			reqH.valueSize = uint32(len(ar.ReqValue))
+		if ar.reqValue != nil {
+			reqH.valueSize = uint32(len(ar.reqValue))
 		} else {
 			reqH.valueSize = 0
 		}
+		msg.header = reqH
+		msg.key = ar.reqKey
+		msg.value = ar.reqValue
 
-		err = encodeToConn(conn, reqH, ar.ReqKey, ar.ReqValue, reqBuf, true)
+		err = enc.encode(msg, headerBuf)
 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
-			ar.Err <- err
+			ar.err <- err
 			break
 		}
 
-		// Waiting for response.
-		_, err = readAtLeast(conn, respHBuf, respHeaderSize)
+		msg.reset()
+		reqH.reset()
+	}
+}
+
+func (c *Client) readWorker(r net.Conn, pendingRequests map[uint64]*asyncResult, pendingRequestsLock *sync.Mutex,
+	done chan<- error) {
+
+	var err error
+
+	defer func() { done <- err }()
+
+	dec := newDecoder(r, c.RecvBufferSize)
+	rh := new(respHeader)
+	headerBuf := make([]byte, respHeaderSize)
+	for {
+
+		err = dec.decodeHeader(headerBuf, rh)
 		if err != nil {
-			ar.Err <- err
-			break
+			xlog.Errorf("failed to read request header from %s: %s", r.RemoteAddr().String(), err)
+			return
 		}
 
-		_ = respH.decode(respHBuf)
+		msgID := rh.msgID
 
-		errno := respH.errno
+		pendingRequestsLock.Lock()
+		ar, ok := pendingRequests[msgID]
+		if ok {
+			delete(pendingRequests, msgID)
+		}
+		pendingRequestsLock.Unlock()
+
+		if !ok {
+			xlog.Errorf("unexpected msgID: %d obtained from: %s", msgID, c.Addr)
+			err = orpc.ErrInternalServer
+			return
+		}
+
+		errno := rh.errno
 		if errno != 0 { // Ignore response if any error. And the response must be nil.
-			ar.Err <- orpc.Errno(errno).ToErr()
+			ar.err <- orpc.Errno(errno).ToErr()
 			continue
 		}
 
-		n := respH.bodySize
+		n := rh.bodySize
 		if n == 0 {
-			ar.Err <- nil
+			ar.err <- nil
 			continue
 		}
 
 		if n != 0 {
-			ar.RespValue = xbytes.GetBytes(int(n))
-			_, err = readAtLeast(conn, ar.RespValue, int(n))
+			ar.respValue = xbytes.GetBytes(int(n))
+			err = dec.decodeBody(ar.respValue)
 			if err != nil { // If failed to read body, the next read header will be failed too, so just return.
-				xbytes.PutBytes(ar.RespValue)
-				ar.Err <- err
-				break
+				xlog.Errorf("failed to read request body from %s: %s", r.RemoteAddr().String(), err)
+				ar.err <- err
+				xbytes.PutBytes(ar.respValue)
+				return
 			}
 		}
 
-		ar.Err <- nil
+		ar.err <- nil
+
+		rh.reset()
 	}
 }
 
-// func (c *Client) writeWorker(idx int, pendingRequests map[uint64]*AsyncResult, pendingRequestsLock *sync.Mutex,
-// 	stopChan <-chan struct{}, done chan<- error) {
-//
-// 	var err error
-// 	defer func() { done <- err }()
-//
-// 	var msgID uint64 = 1
-//
-// 	reqC := c.requestsChan[idx]
-// 	w := c.connPool[idx]
-//
-// 	reqH := new(reqHeader)
-// 	reqBuf := make([]byte, 64*1024)
-//
-// 	for {
-// 		msgID++
-//
-// 		var ar *AsyncResult
-//
-// 		select {
-// 		case ar = <-reqC:
-// 		default:
-// 			// Give the last chance for ready goroutines filling c.requestsChan :)
-// 			runtime.Gosched()
-//
-// 			select {
-// 			case <-stopChan:
-// 				return
-// 			case ar = <-reqC:
-// 			default:
-// 				continue
-// 			}
-// 		}
-//
-// 		if ar == nil {
-// 			continue
-// 		}
-//
-// 		pendingRequestsLock.Lock()
-// 		n := len(pendingRequests)
-// 		pendingRequests[msgID] = ar
-// 		pendingRequestsLock.Unlock()
-//
-// 		if n > int(10*c.PendingRequests) {
-// 			xlog.Errorf("server: %s didn't return %d responses yet: closing connection", c.Addr, n)
-// 			err = orpc.ErrConnection
-// 			return
-// 		}
-//
-// 		reqH.method = ar.Method
-// 		reqH.keySize = uint16(len(ar.ReqKey))
-// 		reqH.dbID = c.DB
-// 		if ar.ReqValue != nil {
-// 			reqH.valueSize = uint32(len(ar.ReqValue))
-// 		} else {
-// 			reqH.valueSize = 0
-// 		}
-//
-// 		err = encodeToConn(w, reqH, ar.ReqKey, ar.ReqValue, reqBuf, true)
-// 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
-// 			ar.Err <- err
-// 			break
-// 		}
-//
-// 	}
-// }
-//
-// func (c *Client) readWorker(conn net.Conn) {
-//
-// }
+// asyncResult is a result returned from Client.callAsync().
+type asyncResult struct {
+	method   uint8
+	reqKey   []byte
+	reqValue []byte
 
-var asyncResultPool sync.Pool
-
-func AcquireAsyncResult() *AsyncResult {
-	v := asyncResultPool.Get()
-	if v == nil {
-		return &AsyncResult{}
-	}
-	return v.(*AsyncResult)
-}
-
-func ReleaseAsyncResult(ar *AsyncResult) {
-	ar.Method = 0
-	ar.ReqKey = nil
-	ar.ReqValue = nil
-
-	ar.RespValue = nil
-
-	ar.Err = nil
-
-	asyncResultPool.Put(ar)
-}
-
-type asyncResp struct {
-	msgID    uint64
-	isHeader bool
-
-	resp []byte
+	respValue []byte
 
 	err chan error
 }
 
 var asyncRespPool sync.Pool
 
-func acquireAsyncResp() *asyncResp {
+func acquireAsyncResult() *asyncResult {
 	v := asyncRespPool.Get()
 	if v == nil {
-		return &asyncResp{}
+		return &asyncResult{}
 	}
-	return v.(*asyncResp)
+	return v.(*asyncResult)
 }
 
-func releaseAsyncResp(ar *asyncResp) {
-	ar.msgID = 0
-	ar.isHeader = false
+func releaseAsyncResult(ar *asyncResult) {
+	ar.method = 0
+	ar.reqKey = nil
+	ar.reqValue = nil
 
-	ar.resp = nil
+	ar.respValue = nil
 
 	ar.err = nil
 
 	asyncRespPool.Put(ar)
-}
-
-var reqHeaderPool sync.Pool
-
-func acquireReqHeader() *reqHeader {
-	v := reqHeaderPool.Get()
-	if v == nil {
-		return &reqHeader{}
-	}
-	return v.(*reqHeader)
-}
-
-func releaseReqHeader(h *reqHeader) {
-
-	h.reset()
-
-	reqHeaderPool.Put(h)
 }
