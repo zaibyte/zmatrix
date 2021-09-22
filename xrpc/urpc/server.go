@@ -430,7 +430,7 @@ func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, s
 			case m = <-responsesChan:
 			case <-flushChan:
 				if err := enc.flush(); err != nil {
-
+					xlog.Error(err.Error())
 					return
 				}
 				flushChan = nil

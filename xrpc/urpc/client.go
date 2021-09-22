@@ -45,6 +45,9 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"g.tesamc.com/IT/zaipkg/xtime"
 
 	"g.tesamc.com/IT/zaipkg/xmath"
 
@@ -367,6 +370,9 @@ func (c *Client) writeWorker(conn net.Conn, reqC chan *asyncResult,
 	enc := newEncoder(conn, c.SendBufferSize)
 	msg := new(msgBytes)
 
+	t := time.NewTimer(-1)
+	var flushChan <-chan time.Time
+
 	for {
 		msgID++
 
@@ -382,13 +388,18 @@ func (c *Client) writeWorker(conn net.Conn, reqC chan *asyncResult,
 			case <-stopChan:
 				return
 			case ar = <-reqC:
-			default:
+			case <-flushChan:
+				if err = enc.flush(); err != nil {
+					xlog.Error(err.Error())
+					return
+				}
+				flushChan = nil
 				continue
 			}
 		}
 
-		if ar == nil {
-			continue
+		if flushChan == nil {
+			flushChan = xtime.GetTimerEvent(t, -1)
 		}
 
 		pendingRequestsLock.Lock()
@@ -408,7 +419,7 @@ func (c *Client) writeWorker(conn net.Conn, reqC chan *asyncResult,
 		msg.key = ar.reqKey
 		msg.value = ar.reqValue
 
-		err = enc.encode(msg, headerBuf)
+		err = enc.encodeNoFlush(msg, headerBuf)
 		if err != nil { // I don't think re-connect to a UDS is a good idea. Just return error to user.
 			ar.err <- err
 			break
