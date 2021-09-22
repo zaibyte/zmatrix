@@ -125,7 +125,8 @@ const (
 	DefaultClientRecvBufferSize = 64 * 1024
 
 	// DefaultClientConns is the default connection numbers for Client.
-	DefaultClientConns = uint64(16)
+	// 4 conns is enough for 0.8 million QPS.
+	DefaultClientConns = uint64(4)
 )
 
 // Start starts rpc client. Establishes connection to the server on Client.Addr.
