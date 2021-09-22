@@ -69,12 +69,6 @@ var randVal = directio.AlignedBlock(1024)
 func init() {
 	rand.Seed(tsc.UnixNano())
 	rand.Read(randVal)
-
-	var err error
-	testSocketDir, err = ioutil.TempDir(os.TempDir(), "test-socket")
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 type testHandler struct {
@@ -110,6 +104,12 @@ func nopHandler() *testHandler {
 }
 
 func getRandomAddr() string {
+
+	var err error
+	testSocketDir, err = ioutil.TempDir(os.TempDir(), "test-socket")
+	if err != nil {
+		log.Fatal(err)
+	}
 	return filepath.Join(testSocketDir, fmt.Sprintf("%d.sock", xrand.Uint32n(777777)))
 }
 
