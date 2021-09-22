@@ -272,10 +272,6 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 
 func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, err error) {
 
-	if method != setMethod && method != getMethod {
-		return nil, orpc.ErrNotImplemented
-	}
-
 	ar = acquireAsyncResult()
 	ar.method = method
 	ar.reqKey = key
