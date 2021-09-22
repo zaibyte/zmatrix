@@ -315,6 +315,8 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, er
 
 func (c *Client) handleConn(idx int) {
 
+	defer c.wg.Done()
+
 	conn := c.connPool[idx]
 	reqChan := c.requestsChan[idx]
 

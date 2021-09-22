@@ -97,8 +97,6 @@ func server(isUDS bool, unixAddress, tcpAddress string, numPing, msgBytes int) {
 
 	buf := make([]byte, msgBytes)
 
-	fakeResp := make([]byte, respHeaderSize)
-
 	for n := 0; n < numPing; n++ {
 		nread, err := conn.Read(buf)
 		if err != nil {
@@ -107,11 +105,11 @@ func server(isUDS bool, unixAddress, tcpAddress string, numPing, msgBytes int) {
 		if nread != msgBytes {
 			log.Fatalf("bad nread = %d", nread)
 		}
-		nwrite, err := conn.Write(fakeResp)
+		nwrite, err := conn.Write(buf)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if nwrite != respHeaderSize {
+		if nwrite != msgBytes {
 			log.Fatalf("bad nwrite = %d", nwrite)
 		}
 	}
