@@ -48,6 +48,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"g.tesamc.com/IT/zaipkg/xtime"
+
 	"g.tesamc.com/IT/zmatrix/xrpc"
 
 	"g.tesamc.com/IT/zaipkg/orpc"
@@ -410,6 +412,9 @@ func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, s
 	rh := new(respHeader)
 	headerBuf := make([]byte, respHeaderSize) // reqHeaderSize is bigger than respHeaderSize.
 
+	t := time.NewTimer(-1)
+	var flushChan <-chan time.Time
+
 	for {
 		var m *serverMessage
 
@@ -423,7 +428,18 @@ func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, s
 			case <-stopChan:
 				return
 			case m = <-responsesChan:
+			case <-flushChan:
+				if err := enc.flush(); err != nil {
+
+					return
+				}
+				flushChan = nil
+				continue
 			}
+		}
+
+		if flushChan == nil {
+			flushChan = xtime.GetTimerEvent(t, -1)
 		}
 
 		resp := m.resp
@@ -438,18 +454,19 @@ func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, s
 		msg.header = rh
 		msg.value = resp
 
-		if err := enc.encode(msg, headerBuf); err != nil {
+		respCloser := m.respCloser
+		m.reset()
+		serverMessagePool.Put(m)
+
+		if err := enc.encodeNoFlush(msg, headerBuf); err != nil {
 
 			xlog.Errorf("failed to send response to: %s: %s", w.RemoteAddr().String(), err)
 			return
 		}
 
-		if m.respCloser != nil {
-			_ = m.respCloser.Close()
+		if respCloser != nil {
+			_ = respCloser.Close()
 		}
-
-		m.reset()
-		serverMessagePool.Put(m)
 
 		msg.reset()
 		rh.reset()

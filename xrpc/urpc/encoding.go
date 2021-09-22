@@ -93,6 +93,37 @@ func (e *encoder) encode(msg *msgBytes, headerBuf []byte) error {
 	return e.bw.Flush()
 }
 
+func (e *encoder) encodeNoFlush(msg *msgBytes, headerBuf []byte) error {
+	var hbuf []byte
+	_, ok := msg.header.(*reqHeader)
+	if ok {
+		hbuf = headerBuf[:reqHeaderSize]
+	} else {
+		hbuf = headerBuf[:respHeaderSize]
+	}
+	_ = msg.header.encode(hbuf)
+	_, err := e.bw.Write(hbuf)
+	if err != nil {
+		return err
+	}
+
+	if msg.key != nil {
+		_, err = e.bw.Write(msg.key)
+		if err != nil {
+			return err
+		}
+	}
+
+	if msg.value != nil {
+		_, err = e.bw.Write(msg.value)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (e *encoder) flush() error {
 	return e.bw.Flush()
 }
