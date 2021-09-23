@@ -149,9 +149,9 @@ func testLatency(isUDS bool, unixAddress, tcpAddress string, msgBytes, numPings 
 // Single thread request.
 func TestClient_Set_Latency_Single(t *testing.T) {
 
-	// if !xtest.IsPropEnabled() {
-	// 	t.Skip("skip prop testing")
-	// }
+	if !xtest.IsPropEnabled() {
+		t.Skip("skip prop testing")
+	}
 
 	addr := getRandomAddr()
 	defer cleanSockets()
@@ -195,11 +195,12 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 }
 
 // Multi threads request.
+// Result: https://g.tesamc.com/IT/zmatrix/issues/2#issuecomment-1589
 func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
-	// if !xtest.IsPropEnabled() {
-	// 	t.Skip("skip prop testing")
-	// }
+	if !xtest.IsPropEnabled() {
+		t.Skip("skip prop testing")
+	}
 
 	addr := getRandomAddr()
 	defer cleanSockets()
