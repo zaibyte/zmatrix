@@ -162,23 +162,13 @@ func (c *Client) Start() error {
 		c.Dial = defaultDial
 	}
 
-	for i := uint64(0); i < c.Conns; i++ { // There is no reason that failed to establish UDS conn except serious issue.
-		conn, err := c.Dial(c.Addr)
-		if err != nil {
-			c.closeConn()
-			return err
-		}
-
-		c.connPool[i] = conn
-	}
-
 	c.stopChan = make(chan struct{})
 
 	atomic.StoreInt64(&c.isRunning, 1)
 
 	for i := uint64(0); i < c.Conns; i++ {
 		c.wg.Add(1)
-		go c.handleConn(int(i))
+		go c.handler(int(i))
 	}
 
 	return nil
@@ -313,9 +303,53 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, er
 	}
 }
 
-func (c *Client) handleConn(idx int) {
-
+func (c *Client) handler(idx int) {
 	defer c.wg.Done()
+	var conn net.Conn
+	var err error
+	var stopping atomic.Value
+
+	for {
+		dialChan := make(chan struct{})
+		go func() {
+			if conn, err = c.Dial(c.Addr); err != nil {
+				if stopping.Load() == nil {
+					xlog.Errorf("cannot establish rpc connection to: %s: %s", c.Addr, err)
+				}
+			}
+			close(dialChan)
+		}()
+
+		select {
+		case <-c.stopChan:
+			stopping.Store(true)
+			<-dialChan
+			return
+		case <-dialChan:
+		}
+
+		if err != nil {
+			select {
+			case <-c.stopChan:
+				return
+			case <-time.After(300 * time.Millisecond): // After 300ms, try to dial again.
+			}
+			continue
+		}
+
+		c.connPool[idx] = conn
+
+		c.handleConn(idx)
+
+		select {
+		case <-c.stopChan:
+			return
+		default:
+		}
+	}
+}
+
+func (c *Client) handleConn(idx int) {
 
 	conn := c.connPool[idx]
 	reqChan := c.requestsChan[idx]

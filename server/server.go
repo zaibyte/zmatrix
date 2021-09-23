@@ -37,6 +37,7 @@ type Server struct {
 
 	ctx    context.Context
 	cancel func()
+
 	stopWg *sync.WaitGroup
 }
 
