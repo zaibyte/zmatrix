@@ -272,8 +272,8 @@ func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, er
 	ar.reqValue = value
 	ar.err = make(chan error)
 
-	c.nextConn++
-	idx := c.nextConn % c.Conns
+	next := atomic.AddUint64(&c.nextConn, 1)
+	idx := next % c.Conns
 
 	reqC := c.requestsChan[idx]
 
