@@ -158,7 +158,7 @@ func (s *Server) Start() error {
 	}
 
 	s.stopWg.Add(1)
-	go s.serverHandler()
+	go s.handler()
 	return nil
 }
 
@@ -182,7 +182,7 @@ func (s *Server) Serve() error {
 	return nil
 }
 
-func (s *Server) serverHandler() {
+func (s *Server) handler() {
 	defer s.stopWg.Done()
 
 	var conn net.Conn
@@ -220,11 +220,11 @@ func (s *Server) serverHandler() {
 		}
 
 		s.stopWg.Add(1)
-		go s.serverHandleConnection(conn)
+		go s.handleConnection(conn)
 	}
 }
 
-func (s *Server) serverHandleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn) {
 	defer s.stopWg.Done()
 
 	responsesChan := make(chan *serverMessage, s.PendingResponses)
