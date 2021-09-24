@@ -4,7 +4,16 @@ import "io"
 
 // DB provides a concurrent, persistent key/value store.
 type DB interface {
+	// GetID gets DB's id.
+	GetID() uint32
+
 	KVer
+
+	// Seal seals DB, rejecting any Set.
+	Seal() error
+
+	// Migrate migrates a sealed DB to another KVer.
+	Migrate(dst *KVer) error
 
 	// Close closes database, release resource.
 	Close() error
