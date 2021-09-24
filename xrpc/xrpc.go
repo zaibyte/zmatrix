@@ -9,15 +9,15 @@ import (
 // Client is the xRPC client.
 type Client interface {
 	db.KVer
-	StartStoper
+	StartStopper
 }
 
 type Server interface {
-	StartStoper
+	StartStopper
 }
 
-// StartStoper is the xRPC server.
-type StartStoper interface {
+// StartStopper is the xRPC server.
+type StartStopper interface {
 	Start() error
 	// Stop closes instance with an error which will be passed to the pending requests.
 	Stop(err error)
