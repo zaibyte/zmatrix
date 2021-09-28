@@ -19,7 +19,12 @@ import (
 )
 
 const (
+	// KeeperBootSectorSize is the keeper boot sector's size.
+	// The total length of boot is 4 KiB, enough for holding dozens databases,
+	// limit the size of boot for atomic updating.
+	// (actually device's page cloud be smaller than it, anyway it improves the rate of atomic operation, good news.)
 	KeeperBootSectorSize = 4 * 1024
+
 	KeeperBootSectorName = "kp-boot"
 )
 
@@ -39,9 +44,6 @@ func init() {
 
 // CreateKpBoot writes down a data block in a file as the bootstrap of entire zMatrix.
 // It contains database_id:database_boot_path mapping.
-// The total length of boot is 4 KiB, enough for holding dozens databases,
-// limit the size of boot for atomic updating.
-// (actually device's page maybe smaller than it, anyway it improves the rate of atomic operation, good news.)
 //
 // KpBoot struct:
 // 0                                                   KeeperBootSectorSize

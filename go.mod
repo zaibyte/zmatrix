@@ -4,16 +4,15 @@ go 1.17
 
 require (
 	g.tesamc.com/IT/zaipkg v0.0.0
+	g.tesamc.com/IT/zproto v0.0.0
 	github.com/cockroachdb/pebble v0.0.0-20210406181039-e3809b89b488
 	github.com/elastic/go-hdrhistogram v0.1.0
-	github.com/panjf2000/ants/v2 v2.4.4-0.20210318172516-2e763f12162d
+	github.com/panjf2000/ants/v2 v2.4.6
 	github.com/stretchr/testify v1.6.1
-	github.com/templexxx/tsc v0.0.3
-	github.com/xtaci/gaio v1.2.14
+	github.com/templexxx/tsc v1.0.1
 )
 
 require (
-	g.tesamc.com/IT/zproto v0.0.0 // indirect
 	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
@@ -35,6 +34,7 @@ require (
 	github.com/jaypipes/ghw v0.8.0 // indirect
 	github.com/julienschmidt/httprouter v1.2.0 // indirect
 	github.com/klauspost/compress v1.11.7 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/kr/text v0.1.0 // indirect
 	github.com/lni/goutils v1.2.0 // indirect
@@ -44,7 +44,8 @@ require (
 	github.com/templexxx/cpu v0.0.8-0.20210423085042-1c810926b5dd // indirect
 	github.com/templexxx/fnc v1.0.1 // indirect
 	github.com/urfave/negroni/v2 v2.0.2 // indirect
-	github.com/zaibyte/nanozap v0.0.6 // indirect
+	github.com/zaibyte/nanozap v0.0.7 // indirect
+	github.com/zeebo/xxh3 v1.0.0-rc3.0.20210921232450-c77878a38204 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
