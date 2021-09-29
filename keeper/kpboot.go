@@ -19,16 +19,16 @@ import (
 )
 
 const (
-	// KeeperBootSectorSize is the keeper boot sector's size.
+	// BootSectorSize is the keeper boot sector's size.
 	// The total length of boot is 4 KiB, enough for holding dozens databases,
 	// limit the size of boot for atomic updating.
 	// (actually device's page cloud be smaller than it, anyway it improves the rate of atomic operation, good news.)
-	KeeperBootSectorSize = 4 * 1024
+	BootSectorSize = 4 * 1024
 
-	KeeperBootSectorName = "kp-boot"
+	BootSectorName = "kp-boot"
 )
 
-type KeeperBoot struct {
+type Boot struct {
 	sync.RWMutex
 
 	F   vfs.File
@@ -36,7 +36,7 @@ type KeeperBoot struct {
 }
 
 // There must be only one keeper boot sector for each zMatrix.
-var kpBootBuf = xbytes.MakeAlignedBlock(KeeperBootSectorSize, 4096)
+var kpBootBuf = xbytes.MakeAlignedBlock(BootSectorSize, 4096)
 
 func init() {
 	rand.Seed(tsc.UnixNano())
@@ -47,17 +47,17 @@ func init() {
 // It contains database_id:database_boot_path mapping.
 //
 // KpBoot struct:
-// 0                                                   KeeperBootSectorSize
+// 0                                                   BootSectorSize
 // | mapping | random_padding | mapping_length(2B) | checksum(4B) |
-func CreateKpBoot(fs vfs.FS, rootPath string) (*KeeperBoot, error) {
+func CreateKpBoot(fs vfs.FS, bootPath string) (*Boot, error) {
 
-	fp := filepath.Join(rootPath, KeeperBootSectorName)
+	fp := filepath.Join(bootPath, BootSectorName)
 	f, err := fs.Create(fp)
 	if err != nil {
 		return nil, err
 	}
 
-	k := &KeeperBoot{
+	k := &Boot{
 		F: f,
 		DBs: &zmatrixpb.KeeperBoot{
 			DbBootPaths: make(map[uint32]string),
@@ -74,32 +74,32 @@ func CreateKpBoot(fs vfs.FS, rootPath string) (*KeeperBoot, error) {
 // FlushKpBoot flushes keeper boot sector to disk.
 // Warn:
 // Ensure it has been protected by lock before using.
-func FlushKpBoot(k *KeeperBoot) error {
+func FlushKpBoot(k *Boot) error {
 
 	n, err := k.DBs.MarshalTo(kpBootBuf)
 	if err != nil {
 		return err
 	}
-	if n > KeeperBootSectorSize-6 {
+	if n > BootSectorSize-6 {
 		xlog.Errorf("keeper boot sector is out of 4KB: %s", zmerrors.ErrTooManyDatabase.Error())
 		return zmerrors.ErrTooManyDatabase
 	}
 
-	binary.LittleEndian.PutUint16(kpBootBuf[KeeperBootSectorSize-6:], uint16(n))
+	binary.LittleEndian.PutUint16(kpBootBuf[BootSectorSize-6:], uint16(n))
 
-	cs := xdigest.Sum32(kpBootBuf[:KeeperBootSectorSize-4])
-	binary.LittleEndian.PutUint32(kpBootBuf[KeeperBootSectorSize-4:], cs)
+	cs := xdigest.Sum32(kpBootBuf[:BootSectorSize-4])
+	binary.LittleEndian.PutUint32(kpBootBuf[BootSectorSize-4:], cs)
 
 	_, err = k.F.Write(kpBootBuf)
 
 	return err
 }
 
-// LoadKpBoot loads keeper boot-sector file, returns *KeeperBoot
+// LoadKpBoot loads keeper boot-sector file, returns *Boot
 // Before return, it'll check the checksum.
-func LoadKpBoot(fs vfs.FS, rootPath string) (kb *KeeperBoot, err error) {
+func LoadKpBoot(fs vfs.FS, bootPath string) (kb *Boot, err error) {
 
-	fp := filepath.Join(rootPath, KeeperBootSectorName)
+	fp := filepath.Join(bootPath, BootSectorName)
 	f, err := fs.Open(fp)
 	if err != nil {
 		return nil, err
@@ -109,21 +109,21 @@ func LoadKpBoot(fs vfs.FS, rootPath string) (kb *KeeperBoot, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if n != KeeperBootSectorSize {
-		xlog.Errorf("load keeper sector failed: mismatched size, exp: %d, got: %d", KeeperBootSectorSize, n)
+	if n != BootSectorSize {
+		xlog.Errorf("load keeper sector failed: mismatched size, exp: %d, got: %d", BootSectorSize, n)
 		return nil, orpc.ErrInternalServer
 	}
 
-	csExp := binary.LittleEndian.Uint32(kpBootBuf[KeeperBootSectorSize-4:])
-	csAct := xdigest.Sum32(kpBootBuf[:KeeperBootSectorSize-4])
+	csExp := binary.LittleEndian.Uint32(kpBootBuf[BootSectorSize-4:])
+	csAct := xdigest.Sum32(kpBootBuf[:BootSectorSize-4])
 
 	if csExp != csAct {
 		return nil, xerrors.WithMessage(orpc.ErrChecksumMismatch, "kp-boot-sector checksum mismatch")
 	}
 
-	mn := binary.LittleEndian.Uint16(kpBootBuf[KeeperBootSectorSize-6:])
+	mn := binary.LittleEndian.Uint16(kpBootBuf[BootSectorSize-6:])
 
-	kb = &KeeperBoot{
+	kb = &Boot{
 		F: f,
 		DBs: &zmatrixpb.KeeperBoot{
 			DbBootPaths: make(map[uint32]string),
@@ -137,11 +137,11 @@ func LoadKpBoot(fs vfs.FS, rootPath string) (kb *KeeperBoot, err error) {
 	return kb, nil
 }
 
-func (k *KeeperBoot) Close() {
+func (k *Boot) Close() {
 	_ = k.F.Close()
 }
 
-func (k *KeeperBoot) Add(id uint32, dbPath string) error {
+func (k *Boot) Add(id uint32, dbPath string) error {
 	k.Lock()
 	defer k.Unlock()
 
@@ -150,7 +150,7 @@ func (k *KeeperBoot) Add(id uint32, dbPath string) error {
 	return FlushKpBoot(k)
 }
 
-func (k *KeeperBoot) Del(id uint32) error {
+func (k *Boot) Del(id uint32) error {
 	k.Lock()
 	defer k.Unlock()
 
@@ -159,7 +159,7 @@ func (k *KeeperBoot) Del(id uint32) error {
 	return FlushKpBoot(k)
 }
 
-func (k *KeeperBoot) Search(id uint32) (string, error) {
+func (k *Boot) Search(id uint32) (string, error) {
 	k.RLock()
 	defer k.RUnlock()
 
