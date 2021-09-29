@@ -31,7 +31,7 @@ type Keeper struct {
 
 var _ IKeeper = new(Keeper)
 
-func NewKeeper(ctx context.Context, wg *sync.WaitGroup, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Keeper, err error) {
+func NewKeeper(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Keeper, err error) {
 
 	k = new(Keeper)
 	k.cfg = cfg
@@ -47,13 +47,21 @@ func NewKeeper(ctx context.Context, wg *sync.WaitGroup, fs vfs.FS, vdsisk vdisk.
 	k.ctx, k.cancel = context.WithCancel(ctx)
 
 	k.dbs = new(sync.Map)
-	k.wg = wg
+	k.wg = new(sync.WaitGroup)
 	k.fs = fs
 	k.vdisk = vdsisk
 
 	k.disks = sdisk.NewZBufDisks(k.ctx, k.wg, k.fs, k.vdisk, cfg.InstanceID, cfg.DataRoot, &cfg.Scheduler)
 
+	k.startBackgroundLoop()
+
 	return k, nil
+}
+
+func (k *Keeper) startBackgroundLoop() {
+
+	k.wg.Add(1)
+	go k.disks.DetectLoop()
 }
 
 func (k *Keeper) CreateDB(dbID uint32, diskPath string) (*db.DB, error) {
@@ -74,4 +82,7 @@ func (k *Keeper) PickDisk() (diskPath string, err error) {
 
 func (k *Keeper) Close() {
 
+	k.cancel()
+
+	k.wg.Wait()
 }
