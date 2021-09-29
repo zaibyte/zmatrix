@@ -1,8 +1,10 @@
-package db
+package keeper
 
 import (
 	"strconv"
 	"testing"
+
+	"g.tesamc.com/IT/zmatrix/db"
 
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/vfs"
@@ -201,7 +203,7 @@ func TestLoadKpBoot(t *testing.T) {
 	err = kpr.Add(uint32(cnt), "cannot be added")
 	assert.Equal(t, zmerrors.ErrTooManyDatabase, err)
 
-	lkp, err := LoadKpBoot(fs, "root")
+	lkp, err := db.LoadKpBoot(fs, "root")
 	if err != nil {
 		t.Fatal(err)
 	}

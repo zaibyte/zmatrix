@@ -1,4 +1,4 @@
-package db
+package keeper
 
 import (
 	"encoding/binary"
@@ -35,6 +35,7 @@ type KeeperBoot struct {
 	DBs *zmatrixpb.KeeperBoot
 }
 
+// There must be only one keeper boot sector for each zMatrix.
 var kpBootBuf = xbytes.MakeAlignedBlock(KeeperBootSectorSize, 4096)
 
 func init() {
@@ -70,6 +71,9 @@ func CreateKpBoot(fs vfs.FS, rootPath string) (*KeeperBoot, error) {
 	return k, nil
 }
 
+// FlushKpBoot flushes keeper boot sector to disk.
+// Warn:
+// Ensure it has been protected by lock before using.
 func FlushKpBoot(k *KeeperBoot) error {
 
 	n, err := k.DBs.MarshalTo(kpBootBuf)
