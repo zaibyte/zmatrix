@@ -55,7 +55,6 @@ import (
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xbytes"
 	"g.tesamc.com/IT/zaipkg/xlog"
-	"github.com/panjf2000/ants/v2"
 )
 
 // Server implements xrpc.Server.
@@ -93,8 +92,6 @@ type Server struct {
 	Listener Listener
 
 	Handler xrpc.ServerHandler
-
-	handlerPool *ants.Pool
 
 	serverStopChan chan struct{}
 	stopWg         sync.WaitGroup
@@ -151,14 +148,10 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	var err error
-	s.handlerPool, err = ants.NewPool(s.Concurrency, ants.WithLogger(xlog.GetLogger()), ants.WithExpiryDuration(3*time.Second), ants.WithPreAlloc(false))
-	if err != nil {
-		return err
-	}
+	workersCh := make(chan struct{}, s.Concurrency)
 
 	s.stopWg.Add(1)
-	go s.handler()
+	go s.handler(workersCh)
 	return nil
 }
 
@@ -170,7 +163,6 @@ func (s *Server) Stop(_ error) {
 	close(s.serverStopChan)
 	s.stopWg.Wait()
 	s.serverStopChan = nil
-	s.handlerPool.Release()
 }
 
 // Serve starts rpc server and blocks until it is stopped.
@@ -182,7 +174,7 @@ func (s *Server) Serve() error {
 	return nil
 }
 
-func (s *Server) handler() {
+func (s *Server) handler(workersCh chan struct{}) {
 	defer s.stopWg.Done()
 
 	var conn net.Conn
@@ -220,18 +212,18 @@ func (s *Server) handler() {
 		}
 
 		s.stopWg.Add(1)
-		go s.handleConnection(conn)
+		go s.handleConnection(conn, workersCh)
 	}
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn, workersCh chan struct{}) {
 	defer s.stopWg.Done()
 
 	responsesChan := make(chan *serverMessage, s.PendingResponses)
 	stopChan := make(chan struct{})
 
 	readerDone := make(chan struct{})
-	go s.serverReader(conn, responsesChan, stopChan, readerDone)
+	go s.serverReader(conn, responsesChan, stopChan, readerDone, workersCh)
 
 	writerDone := make(chan struct{})
 	go s.serverWriter(conn, responsesChan, stopChan, writerDone)
@@ -284,7 +276,7 @@ func (s *serverMessage) reset() {
 }
 
 func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
-	stopChan <-chan struct{}, done chan<- struct{}) {
+	stopChan <-chan struct{}, done chan<- struct{}, workersCh chan struct{}) {
 
 	defer func() {
 		if x := recover(); x != nil {
@@ -328,21 +320,23 @@ func (s *Server) serverReader(r net.Conn, responsesChan chan<- *serverMessage,
 			m.reqValue = body[rh.keySize:]
 		}
 
-		// Haven read the request, handle request async, free the conn for the next request reading.
-		err = s.handlerPool.Submit(func() {
-			s.serveRequest(responsesChan, stopChan, m)
-		})
-		if err != nil {
-			xlog.Error(err.Error())
-			xbytes.PutBytes(body)
-			m.reset()
-			serverMessagePool.Put(m)
-			return
+		// Blocking until we have free worker.
+		select {
+		case workersCh <- struct{}{}:
+		default:
+			select {
+			case workersCh <- struct{}{}:
+			case <-stopChan:
+				return
+			}
 		}
+
+		// Haven read the request, handle request async, free the connection for the next request reading.
+		go s.serveRequest(responsesChan, stopChan, m, workersCh)
 	}
 }
 
-func (s *Server) serveRequest(responsesChan chan<- *serverMessage, stopChan <-chan struct{}, m *serverMessage) {
+func (s *Server) serveRequest(responsesChan chan<- *serverMessage, stopChan <-chan struct{}, m *serverMessage, workersCh <-chan struct{}) {
 
 	if m.err == nil {
 		resp, closer, err := s.callHandlerWithRecover(m.method, m.dbID, m.reqKey, m.reqValue)
@@ -376,6 +370,8 @@ func (s *Server) serveRequest(responsesChan chan<- *serverMessage, stopChan <-ch
 		case <-stopChan:
 		}
 	}
+
+	<-workersCh
 }
 
 func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqValue []byte) (resp []byte, closer io.Closer, err error) {
