@@ -5,18 +5,15 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zaipkg/xlog"
-
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xerrors"
-
-	"g.tesamc.com/IT/zproto/pkg/metapb"
-
 	"g.tesamc.com/IT/keeper/pkg/diskpicker/filter"
+	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/vdisk"
 	sdisk "g.tesamc.com/IT/zaipkg/vdisk/svr"
 	"g.tesamc.com/IT/zaipkg/vfs"
+	"g.tesamc.com/IT/zaipkg/xerrors"
+	"g.tesamc.com/IT/zaipkg/xlog"
 	"g.tesamc.com/IT/zmatrix/db"
+	"g.tesamc.com/IT/zproto/pkg/metapb"
 )
 
 type Keeper struct {
@@ -123,7 +120,7 @@ func (k *Keeper) PickDisk() (diskPath string, err error) {
 		return "", xerrors.WithMessage(orpc.ErrNotFound, "no disk found for making new database")
 	}
 
-	return disk.Id, nil
+	return sdisk.MakeDiskDir(disk.Id, k.cfg.DataRoot), nil
 }
 
 func (k *Keeper) Close() {
