@@ -5,6 +5,7 @@ go 1.17
 require (
 	g.tesamc.com/IT/zaipkg v0.0.0
 	g.tesamc.com/IT/zproto v0.0.0
+	g.tesamc.com/IT/keeper v0.0.0
 	github.com/cockroachdb/pebble v0.0.0-20210406181039-e3809b89b488
 	github.com/elastic/go-hdrhistogram v0.1.0
 	github.com/stretchr/testify v1.6.1
