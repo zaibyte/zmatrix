@@ -1,0 +1,150 @@
+package db
+
+import (
+	"encoding/binary"
+	"path/filepath"
+	"strconv"
+	"sync"
+
+	"g.tesamc.com/IT/zaipkg/directio"
+	"g.tesamc.com/IT/zaipkg/orpc"
+	"g.tesamc.com/IT/zaipkg/vfs"
+	"g.tesamc.com/IT/zaipkg/xdigest"
+	"g.tesamc.com/IT/zaipkg/xerrors"
+	"g.tesamc.com/IT/zaipkg/xlog"
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+)
+
+const (
+	// BootSectorSize is the database boot sector's size.
+	// The total length of boot is 4 KiB, enough for holding dozens databases,
+	// limit the size of boot for atomic updating.
+	// (actually device's page cloud be smaller than it, anyway it improves the rate of atomic operation, good news.)
+	BootSectorSize = 4 * 1024
+
+	BootSectorName = "db-boot"
+)
+
+type Boot struct {
+	sync.RWMutex
+
+	F  vfs.File
+	DB *zmatrixpb.DBBoot
+
+	buf []byte
+}
+
+// MakeBootPath makes a database root sector path by its id & root path.
+func MakeBootPath(dbID uint32, rootPath string) string {
+	return filepath.Join(rootPath, "zm_db", strconv.Itoa(int(dbID)), BootSectorName)
+}
+
+// CreateDBBoot writes down a data block in a file as the bootstrap of a database.
+//
+// DBBoot struct:
+// 0                                                    BootSectorSize
+// | content | random_padding | content_length(2B) | checksum(4B) |
+func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DBEngine, engineState uint32) (*Boot, error) {
+
+	f, err := fs.Create(dbBootPath)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Boot{
+		F: f,
+		DB: &zmatrixpb.DBBoot{
+			Id:          dbID,
+			Engine:      engine,
+			EngineState: engineState,
+			Path:        dbBootPath,
+		},
+		buf: directio.AlignedBlock(BootSectorSize),
+	}
+
+	err = b.Flush()
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// Flush boot sector to disk.
+// Warn:
+// Ensure it has been protected by lock before using.
+func (b *Boot) Flush() error {
+
+	n, err := b.DB.MarshalTo(b.buf)
+	if err != nil {
+		return err
+	}
+	if n > BootSectorSize-6 {
+		xlog.Errorf("database boot sector is out of 4KB: %d", n)
+		return orpc.ErrInternalServer
+	}
+
+	binary.LittleEndian.PutUint16(b.buf[BootSectorSize-6:], uint16(n))
+
+	cs := xdigest.Sum32(b.buf[:BootSectorSize-4])
+	binary.LittleEndian.PutUint32(b.buf[BootSectorSize-4:], cs)
+
+	_, err = b.F.Write(b.buf)
+	if err != nil {
+		return err
+	}
+
+	return b.F.Fdatasync()
+}
+
+// LoadBoot loads database boot-sector file, returns *Boot
+// Before return, it'll check the checksum.
+func LoadBoot(fs vfs.FS, rootPath string) (b *Boot, err error) {
+
+	fp := filepath.Join(rootPath, BootSectorName)
+	f, err := fs.Open(fp)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := directio.AlignedBlock(BootSectorSize)
+
+	n, err := f.ReadAt(buf, 0)
+	if err != nil {
+		return nil, err
+	}
+	if n != BootSectorSize {
+		xlog.Errorf("load database sector failed: mismatched size, exp: %d, got: %d", BootSectorSize, n)
+		return nil, orpc.ErrInternalServer
+	}
+
+	csExp := binary.LittleEndian.Uint32(buf[BootSectorSize-4:])
+	csAct := xdigest.Sum32(buf[:BootSectorSize-4])
+
+	if csExp != csAct {
+		return nil, xerrors.WithMessage(orpc.ErrChecksumMismatch, "db-boot-sector checksum mismatch")
+	}
+
+	mn := binary.LittleEndian.Uint16(buf[BootSectorSize-6:])
+
+	b = &Boot{
+		F:   f,
+		DB:  new(zmatrixpb.DBBoot),
+		buf: buf,
+	}
+	err = b.DB.Unmarshal(buf[:mn])
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
+}
+
+func (b *Boot) Close() {
+
+	b.RLock()
+	defer b.Unlock()
+
+	_ = b.Flush()
+
+	_ = b.F.Close()
+}

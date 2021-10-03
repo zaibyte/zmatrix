@@ -64,17 +64,17 @@ func CreateKpBoot(fs vfs.FS, bootPath string) (*Boot, error) {
 		},
 	}
 
-	err = FlushKpBoot(k)
+	err = k.Flush()
 	if err != nil {
 		return nil, err
 	}
 	return k, nil
 }
 
-// FlushKpBoot flushes keeper boot sector to disk.
+// Flush keeper boot sector to disk.
 // Warn:
 // Ensure it has been protected by lock before using.
-func FlushKpBoot(k *Boot) error {
+func (k *Boot) Flush() error {
 
 	n, err := k.DBs.MarshalTo(kpBootBuf)
 	if err != nil {
@@ -91,8 +91,11 @@ func FlushKpBoot(k *Boot) error {
 	binary.LittleEndian.PutUint32(kpBootBuf[BootSectorSize-4:], cs)
 
 	_, err = k.F.Write(kpBootBuf)
+	if err != nil {
+		return err
+	}
 
-	return err
+	return k.F.Fdatasync()
 }
 
 // LoadKpBoot loads keeper boot-sector file, returns *Boot
@@ -147,7 +150,7 @@ func (k *Boot) Add(id uint32, dbPath string) error {
 
 	k.DBs.DbBootPaths[id] = dbPath
 
-	return FlushKpBoot(k)
+	return k.Flush()
 }
 
 func (k *Boot) Del(id uint32) error {
@@ -156,7 +159,7 @@ func (k *Boot) Del(id uint32) error {
 
 	delete(k.DBs.DbBootPaths, id)
 
-	return FlushKpBoot(k)
+	return k.Flush()
 }
 
 func (k *Boot) Search(id uint32) (string, error) {

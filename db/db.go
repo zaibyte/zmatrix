@@ -25,6 +25,8 @@ type KVer interface {
 	// len(key) must < 64 KiB.
 	//
 	// It is safe to modify the contents of the arguments after Set returns.
+	//
+	// If return orpc.ErrDiskFull, please make a new database, it will create a new database on a new disk with free space if has.
 	Set(key, value []byte) error
 	// Get gets the value for the given key. It returns orpc.ErrNotFound if the DB does
 	// not contain the key.
