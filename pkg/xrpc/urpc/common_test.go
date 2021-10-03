@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"g.tesamc.com/IT/zaipkg/xmath/xrand"
-	"github.com/stretchr/testify/assert"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/templexxx/tsc"
 )
 

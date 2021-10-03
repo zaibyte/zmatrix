@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zmatrix/xrpc"
+	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
 
 	"g.tesamc.com/IT/zaipkg/vdisk"
 	sdisk "g.tesamc.com/IT/zaipkg/vdisk/svr"
@@ -18,8 +18,7 @@ import (
 // Server is the zMatrix server.
 // It's the container which holds all interface for outside using.
 type Server struct {
-	isServing   int64
-	development bool // If true, means in development mode, could use some configs which are forbidden in production env.
+	isServing int64
 
 	cfg *config.Config
 
@@ -50,8 +49,6 @@ func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 	s.instanceID = cfg.App.InstanceID
 	s.cfg = cfg
 	s.ctx, s.cancel = context.WithCancel(ctx)
-
-	s.development = s.cfg.Development
 
 	// s.mSvr = urpc.NewServer(cfg.ObjSrvAddr, s)
 	//
