@@ -36,5 +36,12 @@ That's all! zMatrix is surprisingly simple for beginners!
 
 ### Warn
 
+#### Design for small entries only
+
 DO NOT use it for big objects (> 4 MiB), it's user's responsibility to split big object.
 Big object may block disk I/O too long and damage latency of other small requests hugely.
+
+#### Design for short-lived entries only
+
+DO Not use it for long-term storage. zMatrix has no physical/logical replicas and there is no completed Silent Data Corruption
+protection for data storage in zMatrix.
