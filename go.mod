@@ -6,9 +6,12 @@ require (
 	g.tesamc.com/IT/keeper v0.0.0
 	g.tesamc.com/IT/zaipkg v0.0.0
 	g.tesamc.com/IT/zproto v0.0.0
+	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/cockroachdb/pebble v0.0.0-20210406181039-e3809b89b488
 	github.com/elastic/go-hdrhistogram v0.1.0
+	github.com/openacid/slim v0.5.11
 	github.com/stretchr/testify v1.6.1
+	github.com/templexxx/bsegtree v0.0.2
 	github.com/templexxx/tsc v1.0.1
 )
 
@@ -16,7 +19,7 @@ require (
 	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
-	github.com/cespare/xxhash/v2 v2.1.1 // indirect
+	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/cockroachdb/errors v1.8.1 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f // indirect
 	github.com/cockroachdb/redact v1.0.8 // indirect
@@ -38,6 +41,9 @@ require (
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lni/goutils v1.3.0 // indirect
+	github.com/openacid/errors v0.8.1 // indirect
+	github.com/openacid/low v0.1.14 // indirect
+	github.com/openacid/must v0.1.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect

@@ -31,6 +31,7 @@ That's all! zMatrix is surprisingly simple for beginners!
 
 1. Using only one database unless you want to remove entire database or new one is too big to be placed in the same database (disk space is not enough)
 2. zMatrix is only built for random access, it won't provide list operation for users. It's a good idea to make keys regular. e.g., <prefix_a>_<timestamp>
+3. Sort keys in asc before setting to zMatrix. We could use regular keys and control the setting order to achieve this.
 
 ### Operation Guide
 
@@ -45,3 +46,7 @@ Big object may block disk I/O too long and damage latency of other small request
 
 DO Not use it for long-term storage. zMatrix has no physical/logical replicas and there is no completed Silent Data Corruption
 protection for data storage in zMatrix.
+
+### Other Limitations
+
+1. Maximum key length is 255 bytes. (fixed on 8 bytes is highly recommended!)
