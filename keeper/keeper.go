@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+
 	"g.tesamc.com/IT/keeper/pkg/diskpicker/filter"
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/vdisk"
@@ -27,8 +29,6 @@ type Keeper struct {
 	dbs   *sync.Map
 	disks *sdisk.ZBufDisks
 
-	boot *Boot
-
 	wg     *sync.WaitGroup
 	ctx    context.Context
 	cancel func()
@@ -41,10 +41,6 @@ func NewKeeper(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (
 	k = new(Keeper)
 	k.cfg = cfg
 	err = k.fs.MkdirAll(cfg.BootPath, 0755)
-	if err != nil {
-		return nil, err
-	}
-	k.boot, err = CreateKpBoot(fs, cfg.BootPath)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +80,7 @@ func (k *Keeper) startBackgroundLoop() {
 	go k.disks.DetectLoopWithUsage()
 }
 
-func (k *Keeper) CreateDB(dbID uint32, diskPath string) (*db.DB, error) {
+func (k *Keeper) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) (db.DB, error) {
 	panic("implement me")
 }
 
@@ -92,7 +88,7 @@ func (k *Keeper) RemoveDB(dbID uint32) error {
 	panic("implement me")
 }
 
-func (k *Keeper) GetDB(dbID uint32) (*db.DB, error) {
+func (k *Keeper) GetDB(dbID uint32) (db.DB, error) {
 	panic("implement me")
 }
 
