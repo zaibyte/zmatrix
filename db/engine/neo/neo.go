@@ -6,10 +6,23 @@ import (
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xio"
 	"g.tesamc.com/IT/zmatrix/db"
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 )
 
+// Neo Layout on local filesystem:
+//  .
+//  ├── <database_path>
+//  │    ├── lv0
+//  │    └── lv1
+//  │         └── segments
+//  │              ├── <segment_id>.seg
+//  │              ├── <segment_id>.idx
+//	│ 			   ├── ...
+
 const (
-	pebbleName = "pebble"
+	lv0DirName = "lv0"
+	lv1DirName = "lv1"
+	segsDir    = "segments"
 
 	toLvl1Threshold = 8 * 1024 * 1024 * 1024 // At least 8 GiB. Around 1 millions objects for small entries.
 )
@@ -22,12 +35,36 @@ type Database struct {
 	lvl0DirtyCount uint64
 }
 
+func (d *Database) Start() error {
+	panic("implement me")
+}
+
+func (d *Database) GetState() zmatrixpb.DBState {
+	panic("implement me")
+}
+
+func (d *Database) SetState(s zmatrixpb.DBState) {
+	panic("implement me")
+}
+
+func (d *Database) Remove() error {
+	panic("implement me")
+}
+
+var _ db.DB = new(Database)
+
 // Create neo Database.
-func Create(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+func Create(path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 	return nil, nil
 }
 
-func Load() {
+// createPaths creates paths needed by Neo Database under dir.
+// Return nil if all paths created.
+func createPaths(dir string, id uint32) error {
+
+}
+
+func Load(path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 
 }
 

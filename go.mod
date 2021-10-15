@@ -10,9 +10,10 @@ require (
 	github.com/cockroachdb/pebble v0.0.0-20210406181039-e3809b89b488
 	github.com/elastic/go-hdrhistogram v0.1.0
 	github.com/openacid/slim v0.5.11
+	github.com/spf13/cast v1.3.1
 	github.com/stretchr/testify v1.6.1
 	github.com/templexxx/bsegtree v0.0.2
-	github.com/templexxx/tsc v1.0.1
+	github.com/templexxx/tsc v1.1.1
 )
 
 require (
@@ -46,7 +47,6 @@ require (
 	github.com/openacid/must v0.1.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/spf13/cast v1.3.1 // indirect
 	github.com/templexxx/cpu v0.0.8-0.20210423085042-1c810926b5dd // indirect
 	github.com/templexxx/fnc v1.0.1 // indirect
 	github.com/urfave/negroni/v2 v2.0.2 // indirect

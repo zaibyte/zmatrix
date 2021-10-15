@@ -8,6 +8,8 @@ import (
 
 // DB provides a concurrent, persistent key/value store.
 type DB interface {
+	Start() error
+
 	// GetID gets DB's id.
 	GetID() uint32
 

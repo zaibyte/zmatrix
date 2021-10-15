@@ -31,6 +31,10 @@ type Boot struct {
 	buf []byte
 }
 
+func MakeRootPath(dbDir string) string {
+	return filepath.Join(dbDir, BootSectorName)
+}
+
 // CreateDBBoot writes down a data block in a file as the bootstrap of a database.
 //
 // DBBoot struct:
