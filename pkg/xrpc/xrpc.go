@@ -25,6 +25,8 @@ type StartStopper interface {
 
 // ServerHandler is the xRPC handler.
 type ServerHandler interface {
+	// Set key, value to certain db.
+	// If db not found, will be created automatically.
 	Set(db uint32, key, value []byte) error
 	Get(db uint32, key []byte) (value []byte, closer io.Closer, err error)
 	SetBatch(db uint32, keys, values [][]byte) error
