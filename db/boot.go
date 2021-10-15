@@ -3,8 +3,7 @@ package db
 import (
 	"encoding/binary"
 	"path/filepath"
-	"strconv"
-	"sync"
+	"sync/atomic"
 
 	"g.tesamc.com/IT/zaipkg/directio"
 	"g.tesamc.com/IT/zaipkg/orpc"
@@ -26,17 +25,10 @@ const (
 )
 
 type Boot struct {
-	sync.RWMutex
-
 	F  vfs.File
 	DB *zmatrixpb.DBBoot
 
 	buf []byte
-}
-
-// MakeBootPath makes a database root sector path by its id & root path.
-func MakeBootPath(dbID uint32, rootPath string) string {
-	return filepath.Join(rootPath, "zm_db", strconv.Itoa(int(dbID)), BootSectorName)
 }
 
 // CreateDBBoot writes down a data block in a file as the bootstrap of a database.
@@ -44,7 +36,7 @@ func MakeBootPath(dbID uint32, rootPath string) string {
 // DBBoot struct:
 // 0                                                    BootSectorSize
 // | content | random_padding | content_length(2B) | checksum(4B) |
-func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DBEngine, engineState uint32) (*Boot, error) {
+func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DBEngine) (*Boot, error) {
 
 	f, err := fs.Create(dbBootPath)
 	if err != nil {
@@ -54,10 +46,8 @@ func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DB
 	b := &Boot{
 		F: f,
 		DB: &zmatrixpb.DBBoot{
-			Id:          dbID,
-			Engine:      engine,
-			EngineState: engineState,
-			Path:        dbBootPath,
+			Id:     dbID,
+			Engine: engine,
 		},
 		buf: directio.AlignedBlock(BootSectorSize),
 	}
@@ -94,6 +84,15 @@ func (b *Boot) Flush() error {
 	}
 
 	return b.F.Fdatasync()
+}
+
+func (b *Boot) SetState(s zmatrixpb.DBState) {
+
+	atomic.StoreInt32((*int32)(&b.DB.State), int32(s))
+}
+
+func (b *Boot) GetState() zmatrixpb.DBState {
+	return zmatrixpb.DBState(atomic.LoadInt32((*int32)(&b.DB.State)))
 }
 
 // LoadBoot loads database boot-sector file, returns *Boot
@@ -140,9 +139,6 @@ func LoadBoot(fs vfs.FS, rootPath string) (b *Boot, err error) {
 }
 
 func (b *Boot) Close() {
-
-	b.RLock()
-	defer b.Unlock()
 
 	_ = b.Flush()
 
