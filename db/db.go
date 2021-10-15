@@ -1,21 +1,31 @@
 package db
 
-import "io"
+import (
+	"io"
+
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+)
 
 // DB provides a concurrent, persistent key/value store.
 type DB interface {
 	// GetID gets DB's id.
 	GetID() uint32
 
+	GetState() zmatrixpb.DBState
+	SetState(s zmatrixpb.DBState)
+
 	KVer
 
 	// Seal seals DB, rejecting any Set.
 	Seal() error
 
+	// Remove marks this database could be removed.
+	Remove() error
+
 	// Migrate migrates a sealed DB to another KVer.
 	Migrate(dst *KVer) error
 
-	// Close closes database, release resource.
+	// Close closes database, release runtime resource.
 	Close() error
 }
 
