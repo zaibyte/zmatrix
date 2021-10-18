@@ -65,6 +65,11 @@ func (m *Mgr) setDB(id uint32, db *DB) {
 	}
 }
 
+func (m *Mgr) remove(id uint32) {
+
+	m.setDB(id, nil)
+}
+
 func New(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Mgr, err error) {
 
 	k = new(Mgr)
@@ -230,6 +235,8 @@ func (m *Mgr) RemoveDB(dbID uint32) error {
 			xlog.Error(xerrors.WithMessage(err, "failed to remove database directory").Error())
 		}
 	}()
+
+	m.remove(dbID)
 
 	return nil
 }
