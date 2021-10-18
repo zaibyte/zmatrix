@@ -91,7 +91,7 @@ func (h *testHandler) SetBatch(db uint32, keys, values [][]byte) error {
 }
 
 func (h *testHandler) Remove(db uint32) error {
-	return h.Remove(db)
+	return h.removeFn(db)
 }
 
 func nopHandler() *testHandler {
@@ -333,14 +333,20 @@ func TestClient_Get_Concurrency(t *testing.T) {
 	}
 }
 
-func TestRemoveDB(t *testing.T) {
+func TestMultiDB(t *testing.T) {
 	addr := getRandomAddr()
 	defer cleanSockets()
 
-	exp := make(map[uint64][]byte) // For testing, key is an uint64.
+	dbs := make(map[uint32]map[uint64][]byte)
 
 	h := nopHandler()
 	h.setFn = func(db uint32, key, value []byte) error {
+
+		exp, ok := dbs[db]
+		if !ok {
+			exp = make(map[uint64][]byte)
+		}
+
 		o := make([]byte, len(value))
 		copy(o, value)
 		k := binary.LittleEndian.Uint64(key)
@@ -348,6 +354,11 @@ func TestRemoveDB(t *testing.T) {
 		return nil
 	}
 	h.getFn = func(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
+
+		exp, ok := dbs[db]
+		if !ok {
+			return nil, nil, orpc.ErrNotFound
+		}
 		k := binary.LittleEndian.Uint64(key)
 		o := exp[k]
 		size := len(o)
@@ -360,6 +371,10 @@ func TestRemoveDB(t *testing.T) {
 		for i := range keys {
 			_ = h.setFn(db, keys[i], values[i])
 		}
+		return nil
+	}
+	h.removeFn = func(db uint32) error {
+		delete(dbs, db)
 		return nil
 	}
 
@@ -377,52 +392,47 @@ func TestRemoveDB(t *testing.T) {
 	defer c.Stop(nil)
 
 	key := make([]byte, 8)
-	for i := 0; i < 128; i++ {
 
-		size := xrand.Uint32n(uint32(len(randVal) + 1))
-		if size == 0 {
-			size = 1
-		}
-		val := randVal[:size]
-		binary.LittleEndian.PutUint64(key, uint64(i))
-		err := c.Set(1, key, val)
-		if err != nil {
-			t.Fatal(err)
+	for j := 0; j < 16; j++ {
+		for i := 0; i < 128; i++ {
+
+			size := xrand.Uint32n(uint32(len(randVal) + 1))
+			if size == 0 {
+				size = 1
+			}
+			val := randVal[:size]
+			binary.LittleEndian.PutUint64(key, uint64(i))
+			err := c.Set(uint32(j), key, val)
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-	batchCnt := 16
-	keys := make([][]byte, batchCnt)
-	values := make([][]byte, batchCnt)
 
-	for i := 0; i < batchCnt; i++ {
-		k := make([]byte, 8)
-		binary.BigEndian.PutUint64(k, uint64(i))
+	for j := 0; j < 16; j++ {
+		exp := dbs[uint32(j)]
 
-		vl := xrand.Uint32n(200)
-		if vl == 0 {
-			vl = 2
+		for k, v := range exp {
+			binary.LittleEndian.PutUint64(key, k)
+			act, closer, err := c.Get(uint32(j), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !bytes.Equal(act, v) {
+				t.Fatal("obj data mismatch")
+			}
+			closer.Close()
 		}
-		value := make([]byte, vl)
-		rand.Read(value)
-
-		keys[i] = k
-		values[i] = value
 	}
-	err = c.SetBatch(1, keys, values)
+
+	err = c.Remove(1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for k, v := range exp {
-		binary.LittleEndian.PutUint64(key, k)
-		act, closer, err := c.Get(1, key)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !bytes.Equal(act, v) {
-			t.Fatal("obj data mismatch")
-		}
-		closer.Close()
+	_, ok := dbs[1]
+	if ok {
+		t.Fatal("database should be removed")
 	}
 }

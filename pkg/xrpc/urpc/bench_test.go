@@ -81,7 +81,7 @@ func BenchmarkClient_Set(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for i := 0; pb.Next(); i++ {
-			err := c.Set(key, value)
+			err := c.Set(1, key, value)
 			if err != nil {
 				b.Fatalf("Unexpected error: %s", err)
 			}
@@ -130,7 +130,7 @@ func BenchmarkClient_Get(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for i := 0; pb.Next(); i++ {
-			val, closer, err := c.Get(key)
+			val, closer, err := c.Get(1, key)
 			if err != nil {
 				b.Fatalf("Unexpected error: %s", err)
 			}

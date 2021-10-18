@@ -394,6 +394,10 @@ func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqVa
 		err = s.Handler.SetBatch(dbID, keys, values)
 		return nil, nil, err
 	}
+	if method == removeMethod {
+		err = s.Handler.Remove(dbID)
+		return nil, nil, err
+	}
 
 	return nil, nil, orpc.ErrNotImplemented
 }

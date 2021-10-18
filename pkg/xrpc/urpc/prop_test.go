@@ -183,7 +183,7 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 	jobStart := tsc.UnixNano()
 	for i := 0; i < n; i++ {
 		start := tsc.UnixNano()
-		err := c.Set(key, value)
+		err := c.Set(1, key, value)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -239,7 +239,7 @@ func TestClient_Set_Latency_Concurrency(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < n; i++ {
 				start := tsc.UnixNano()
-				err := c.Set(key, value)
+				err := c.Set(1, key, value)
 				if err != nil {
 					t.Error(err)
 					return

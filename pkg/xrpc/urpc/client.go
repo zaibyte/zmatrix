@@ -69,7 +69,6 @@ import (
 type Client struct {
 	isRunning int64
 
-	DB   uint32 // One Client could only connect to one Database.
 	Addr string // Server's address.
 
 	// The number of concurrent connections the client should establish
@@ -113,8 +112,6 @@ type Client struct {
 var _ xrpc.Client = new(Client)
 
 const (
-	DefaultDB = uint32(1)
-
 	// DefaultClientSendBufferSize is the default size for Client send buffers.
 	DefaultClientSendBufferSize = 64 * 1024
 
@@ -134,7 +131,6 @@ func (c *Client) Start() error {
 		return nil
 	}
 
-	config.Adjust(&c.DB, DefaultDB)
 	config.Adjust(&c.PendingRequests, DefaultPendingMessages)
 	config.Adjust(&c.Conns, DefaultClientConns)
 	config.Adjust(&c.RecvBufferSize, DefaultClientRecvBufferSize)
@@ -203,12 +199,12 @@ func (c *Client) Stop(err error) {
 	}
 }
 
-func (c *Client) Set(key, value []byte) error {
-	_, _, err := c.call(setMethod, key, value)
+func (c *Client) Set(db uint32, key, value []byte) error {
+	_, _, err := c.call(db, setMethod, key, value)
 	return err
 }
 
-func (c *Client) SetBatch(keys, values [][]byte) error {
+func (c *Client) SetBatch(db uint32, keys, values [][]byte) error {
 	kCnt := len(keys)
 	vCnt := len(values)
 	if kCnt != vCnt {
@@ -217,13 +213,18 @@ func (c *Client) SetBatch(keys, values [][]byte) error {
 
 	value, closer := compactSetBatchReq(keys, values)
 	defer closer.Close()
-	_, _, err := c.call(setBatchMethod, nil, value)
+	_, _, err := c.call(db, setBatchMethod, nil, value)
 	return err
 }
 
-func (c *Client) Get(key []byte) ([]byte, io.Closer, error) {
+func (c *Client) Get(db uint32, key []byte) ([]byte, io.Closer, error) {
 
-	return c.call(getMethod, key, nil)
+	return c.call(db, getMethod, key, nil)
+}
+
+func (c *Client) Remove(db uint32) error {
+	_, _, err := c.call(db, removeMethod, nil, nil)
+	return err
 }
 
 // call sends the given request to the server and obtains response
@@ -232,7 +233,7 @@ func (c *Client) Get(key []byte) ([]byte, io.Closer, error) {
 // Returns non-nil error if the response cannot be obtained.
 //
 // Don't forget starting the client with Client.Start() before calling Client.call().
-func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error) {
+func (c *Client) call(db uint32, method uint8, key, value []byte) ([]byte, io.Closer, error) {
 
 	if atomic.LoadInt64(&c.isRunning) != 1 {
 		return nil, nil, orpc.ErrServiceClosed
@@ -240,7 +241,7 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 
 	var ar *asyncResult
 	var err error
-	if ar, err = c.callAsync(method, key, value); err != nil {
+	if ar, err = c.callAsync(db, method, key, value); err != nil {
 		return nil, nil, err
 	}
 
@@ -258,9 +259,10 @@ func (c *Client) call(method uint8, key, value []byte) ([]byte, io.Closer, error
 	return nil, nil, nil
 }
 
-func (c *Client) callAsync(method uint8, key, value []byte) (ar *asyncResult, err error) {
+func (c *Client) callAsync(db uint32, method uint8, key, value []byte) (ar *asyncResult, err error) {
 
 	ar = acquireAsyncResult()
+	ar.db = db
 	ar.method = method
 	ar.reqKey = key
 	ar.reqValue = value
@@ -436,8 +438,12 @@ func (c *Client) writeWorker(conn net.Conn, reqC chan *asyncResult,
 
 		reqH.method = ar.method
 		reqH.msgID = msgID
-		reqH.keySize = uint16(len(ar.reqKey))
-		reqH.dbID = c.DB
+		if ar.reqKey != nil {
+			reqH.keySize = uint16(len(ar.reqKey))
+		} else {
+			reqH.keySize = 0
+		}
+		reqH.dbID = ar.db
 		if ar.reqValue != nil {
 			reqH.valueSize = uint32(len(ar.reqValue))
 		} else {
@@ -522,6 +528,7 @@ func (c *Client) readWorker(r net.Conn, pendingRequests map[uint64]*asyncResult,
 
 // asyncResult is a result returned from Client.callAsync().
 type asyncResult struct {
+	db       uint32
 	method   uint8
 	reqKey   []byte
 	reqValue []byte
@@ -542,6 +549,7 @@ func acquireAsyncResult() *asyncResult {
 }
 
 func releaseAsyncResult(ar *asyncResult) {
+	ar.db = 0
 	ar.method = 0
 	ar.reqKey = nil
 	ar.reqValue = nil

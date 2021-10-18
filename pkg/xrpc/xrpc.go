@@ -2,13 +2,14 @@ package xrpc
 
 import (
 	"io"
-
-	"g.tesamc.com/IT/zmatrix/db"
 )
 
 // Client is the xRPC client.
 type Client interface {
-	db.KVer
+	Set(db uint32, key, value []byte) error
+	Get(db uint32, key []byte) ([]byte, io.Closer, error)
+	SetBatch(db uint32, keys, values [][]byte) error
+	Remove(db uint32) error
 	StartStopper
 }
 
@@ -30,4 +31,6 @@ type ServerHandler interface {
 	Set(db uint32, key, value []byte) error
 	Get(db uint32, key []byte) (value []byte, closer io.Closer, err error)
 	SetBatch(db uint32, keys, values [][]byte) error
+	// Remove removes database entirely.
+	Remove(db uint32) error
 }
