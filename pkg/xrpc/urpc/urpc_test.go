@@ -75,6 +75,7 @@ type testHandler struct {
 	setFn      func(db uint32, key, value []byte) error
 	getFn      func(db uint32, key []byte) (value []byte, closer io.Closer, err error)
 	setBatchFn func(db uint32, keys, values [][]byte) error
+	removeFn   func(db uint32) error
 }
 
 func (h *testHandler) Set(db uint32, key, value []byte) error {
@@ -89,6 +90,10 @@ func (h *testHandler) SetBatch(db uint32, keys, values [][]byte) error {
 	return h.setBatchFn(db, keys, values)
 }
 
+func (h *testHandler) Remove(db uint32) error {
+	return h.Remove(db)
+}
+
 func nopHandler() *testHandler {
 	return &testHandler{
 		setFn: func(db uint32, key, value []byte) error {
@@ -98,6 +103,9 @@ func nopHandler() *testHandler {
 			return nil, nil, nil
 		},
 		setBatchFn: func(db uint32, keys, values [][]byte) error {
+			return nil
+		},
+		removeFn: func(db uint32) error {
 			return nil
 		},
 	}
@@ -123,7 +131,7 @@ func getRandomTCPAddr() string {
 }
 
 func newTestClient(addr string) *Client {
-	c := NewClient(addr, 0)
+	c := NewClient(addr)
 	return c
 }
 
@@ -179,7 +187,7 @@ func TestClient_Get(t *testing.T) {
 		}
 		val := randVal[:size]
 		binary.LittleEndian.PutUint64(key, uint64(i))
-		err := c.Set(key, val)
+		err := c.Set(1, key, val)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -202,14 +210,14 @@ func TestClient_Get(t *testing.T) {
 		keys[i] = k
 		values[i] = value
 	}
-	err = c.SetBatch(keys, values)
+	err = c.SetBatch(1, keys, values)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for k, v := range exp {
 		binary.LittleEndian.PutUint64(key, k)
-		act, closer, err := c.Get(key)
+		act, closer, err := c.Get(1, key)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -275,7 +283,7 @@ func TestClient_Get_Concurrency(t *testing.T) {
 		ku := uint64(i)
 		key := make([]byte, 8)
 		binary.LittleEndian.PutUint64(key, ku)
-		err := c.Set(key, val)
+		err := c.Set(1, key, val)
 		if err != nil {
 			t.Fatal(err, size)
 		}
@@ -290,7 +298,7 @@ func TestClient_Get_Concurrency(t *testing.T) {
 		go func(key []byte) {
 			defer wg.Done()
 
-			act, closer, err := c.Get(key)
+			act, closer, err := c.Get(1, key)
 			if err != nil {
 				errC <- err
 				return
@@ -308,7 +316,7 @@ func TestClient_Get_Concurrency(t *testing.T) {
 				return
 			}
 
-			act, closer, err = c.Get([]byte("not found"))
+			act, closer, err = c.Get(1, []byte("not found"))
 			if !errors.Is(err, orpc.ErrNotFound) {
 				errC <- errors.New("should be not found")
 				return
@@ -322,5 +330,99 @@ func TestClient_Get_Concurrency(t *testing.T) {
 	close(errC)
 	for err := range errC {
 		t.Error(err)
+	}
+}
+
+func TestRemoveDB(t *testing.T) {
+	addr := getRandomAddr()
+	defer cleanSockets()
+
+	exp := make(map[uint64][]byte) // For testing, key is an uint64.
+
+	h := nopHandler()
+	h.setFn = func(db uint32, key, value []byte) error {
+		o := make([]byte, len(value))
+		copy(o, value)
+		k := binary.LittleEndian.Uint64(key)
+		exp[k] = o
+		return nil
+	}
+	h.getFn = func(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
+		k := binary.LittleEndian.Uint64(key)
+		o := exp[k]
+		size := len(o)
+		value = xbytes.GetBytes(size)
+		copy(value, o)
+		closer = xbytes.PoolBytesCloser{P: value}
+		return
+	}
+	h.setBatchFn = func(db uint32, keys, values [][]byte) error {
+		for i := range keys {
+			_ = h.setFn(db, keys[i], values[i])
+		}
+		return nil
+	}
+
+	s := NewServer(addr, h)
+	if err := s.Start(); err != nil {
+		t.Fatalf("cannot start server: %s", err)
+	}
+	defer s.Stop(nil)
+
+	c := newTestClient(addr)
+	err := c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop(nil)
+
+	key := make([]byte, 8)
+	for i := 0; i < 128; i++ {
+
+		size := xrand.Uint32n(uint32(len(randVal) + 1))
+		if size == 0 {
+			size = 1
+		}
+		val := randVal[:size]
+		binary.LittleEndian.PutUint64(key, uint64(i))
+		err := c.Set(1, key, val)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	batchCnt := 16
+	keys := make([][]byte, batchCnt)
+	values := make([][]byte, batchCnt)
+
+	for i := 0; i < batchCnt; i++ {
+		k := make([]byte, 8)
+		binary.BigEndian.PutUint64(k, uint64(i))
+
+		vl := xrand.Uint32n(200)
+		if vl == 0 {
+			vl = 2
+		}
+		value := make([]byte, vl)
+		rand.Read(value)
+
+		keys[i] = k
+		values[i] = value
+	}
+	err = c.SetBatch(1, keys, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for k, v := range exp {
+		binary.LittleEndian.PutUint64(key, k)
+		act, closer, err := c.Get(1, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(act, v) {
+			t.Fatal("obj data mismatch")
+		}
+		closer.Close()
 	}
 }

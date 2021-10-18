@@ -341,7 +341,6 @@ github.com/templexxx/cpu v0.0.8-0.20210423085042-1c810926b5dd/go.mod h1:w7Tb+7qg
 github.com/templexxx/fnc v1.0.1 h1:abLjCYPKEyN+nmJjtxQtcuEdtJGWCSqnXFvhrIrX6To=
 github.com/templexxx/fnc v1.0.1/go.mod h1:b66A7maDNEAAJOqWNGMJZvlp1VXqWAeeSpFfdeenMHo=
 github.com/templexxx/tsc v0.0.3/go.mod h1:hunjOjYc+mNd0w8V5ur8rtQCIRiGxH+5utxr3uzVP0s=
-github.com/templexxx/tsc v1.0.1/go.mod h1:/nsBSTewAjTHdW10ELwUN/xzz4Rpta67MGKoaINId58=
 github.com/templexxx/tsc v1.1.1 h1:CS/CIJgZ327wzTu9N69Zle6ZItfhFpWKL7CL9GH1AKA=
 github.com/templexxx/tsc v1.1.1/go.mod h1:/nsBSTewAjTHdW10ELwUN/xzz4Rpta67MGKoaINId58=
 github.com/ugorji/go v1.1.4/go.mod h1:uQMGLiO92mf5W77hV/PUCpI3pbzQx3CRekS0kk+RGrc=
@@ -367,8 +366,8 @@ github.com/yudai/golcs v0.0.0-20170316035057-ecda9a501e82/go.mod h1:lgjkn3NuSvDf
 github.com/yudai/pp v2.0.1+incompatible/go.mod h1:PuxR/8QJ7cyCkFp/aUDS+JY727OFEZkTdatxwunjIkc=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
-github.com/zaibyte/nanozap v0.0.7 h1:s0aEjcZ+p6ZMcoXZ7dJY0ZqeBg5ZXk/E4IDv7F7YYvM=
-github.com/zaibyte/nanozap v0.0.7/go.mod h1:3uX3gwuHXfTExydAgvqnkDFZUVmeDBBTzkeezXMQd60=
+github.com/zaibyte/nanozap v0.0.8-0.20211015024732-90f56191337a h1:YXogpcSDmpR2T9N3bwMbb/GSCZiWb/wfVVtk8O40X1A=
+github.com/zaibyte/nanozap v0.0.8-0.20211015024732-90f56191337a/go.mod h1:L00/zKTupPpbV0O7nhyo0WU/cBtjyzY4cSFuQSPg0Jg=
 github.com/zeebo/xxh3 v1.0.0-rc3.0.20210921232450-c77878a38204 h1:rocr1SHZ9VYh1UOhrLLeBuWOJ/8AMyYPmeEGwvrgXzU=
 github.com/zeebo/xxh3 v1.0.0-rc3.0.20210921232450-c77878a38204/go.mod h1:8VHV24/3AZLn3b6Mlp/KuC33LWH687Wq6EnziEB+rsA=
 go.uber.org/atomic v1.6.0/go.mod h1:sABNBOSYdrvTF6hTgEIbc7YasKWGhgEQZyfxyTvoXHQ=

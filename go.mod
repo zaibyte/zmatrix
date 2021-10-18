@@ -50,7 +50,7 @@ require (
 	github.com/templexxx/cpu v0.0.8-0.20210423085042-1c810926b5dd // indirect
 	github.com/templexxx/fnc v1.0.1 // indirect
 	github.com/urfave/negroni/v2 v2.0.2 // indirect
-	github.com/zaibyte/nanozap v0.0.7 // indirect
+	github.com/zaibyte/nanozap v0.0.8-0.20211015024732-90f56191337a // indirect
 	github.com/zeebo/xxh3 v1.0.0-rc3.0.20210921232450-c77878a38204 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect

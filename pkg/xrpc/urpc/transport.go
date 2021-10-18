@@ -51,9 +51,8 @@ import (
 // The returned client must be started after optional settings' adjustment.
 //
 // The corresponding server must be created with NewServer().
-func NewClient(addr string, db uint32) *Client {
+func NewClient(addr string) *Client {
 	c := &Client{
-		DB:   db,
 		Addr: addr,
 		Dial: func(addr string) (conn net.Conn, err error) {
 			return defaultDial(addr)
