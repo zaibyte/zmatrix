@@ -206,7 +206,7 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 // RemoveDB removes database:
 // 1. closing database
 // 2. mark removed by changed state in boot
-// 3. delete directory
+// 3. delete directory async (delete may cause stall)
 //
 // 1 & 2 will be done in DB.Close
 func (m *Mgr) RemoveDB(dbID uint32) error {
@@ -224,10 +224,12 @@ func (m *Mgr) RemoveDB(dbID uint32) error {
 		return err
 	}
 
-	err = m.fs.RemoveAll(d.dir)
-	if err != nil {
-		xlog.Error(xerrors.WithMessage(err, "failed to remove database directory").Error())
-	}
+	go func() {
+		err = m.fs.RemoveAll(d.dir)
+		if err != nil {
+			xlog.Error(xerrors.WithMessage(err, "failed to remove database directory").Error())
+		}
+	}()
 
 	return nil
 }
