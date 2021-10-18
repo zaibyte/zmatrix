@@ -17,7 +17,7 @@ TEST_PKGS := $(shell find . -iname "*_test.go" -exec dirname {} \; | \
 all: test
 
 test:
-	go test -tags memfs_test -race -cover $(TEST_PKGS)
+	go test -race -cover $(TEST_PKGS)
 
 tidy:
 	@echo "go mod tidy"
