@@ -108,7 +108,6 @@ func (m *Mgr) Start() error {
 				continue
 			}
 
-			// dboot.DB.Engine
 			d, err := neo.Load(dbDir, m.fs, sched)
 			if err != nil {
 				err = xerrors.WithMessagef(err, "failed to load database: %d", i)
@@ -144,6 +143,7 @@ func (m *Mgr) isClosed() bool {
 // 1. create database home directory if not existed: zmatrix/db
 // 2. create this database directory
 // 3. invoke engine's creating method to create database
+// 4. store new db into manager memory
 func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) (d db.DB, err error) {
 
 	if m.isClosed() {
@@ -191,6 +191,14 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 	}
 
 	d, err = neo.Create(dbDir, fs, sched)
+	if err != nil {
+		return nil, err
+	}
+
+	m.setDB(dbID, &DB{
+		db:  d,
+		dir: dbDir,
+	})
 
 	return
 }
