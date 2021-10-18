@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cockroachdb/pebble"
+
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xbytes"
@@ -16,8 +18,8 @@ import (
 	"g.tesamc.com/IT/zaipkg/xerrors"
 	"g.tesamc.com/IT/zaipkg/xio"
 	"g.tesamc.com/IT/zaipkg/xstrconv"
-	"github.com/cespare/xxhash/v2"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/openacid/slim/index"
 	"github.com/templexxx/bsegtree"
 )
@@ -31,16 +33,13 @@ import (
 //  │              ├── <segment_id>.seg
 //  │              ├── <segment_id>.idx
 //	│ 			   ├── ...
-//  │              └── tmp
-//  │                   ├── <segment_id>.seg
-//  │                   ├── <segment_id>.idx
-//  │                   ├── ...
 
 type lv1 struct {
 	sync.RWMutex
-	indexes []*index.SlimIndex
+	nextSegID uint32
+	indexes   []*index.SlimIndex
 
-	path string
+	path string // <database_path>/lv1/
 
 	sched xio.Scheduler
 	fs    vfs.FS
@@ -49,15 +48,32 @@ type lv1 struct {
 }
 
 const (
-	logicTimestampEpoch = 1
-	chunksDir           = "chunks"
-	tmpDir              = "tmp"
-
-	chunkBufSize = 32 * 1024
+	segBufSize = 32 * 1024
 
 	version1           = uint32(1) // In present, we only has one version.
 	chunkIdxHeaderSize = 4 * 1024
 )
+
+// createPaths creates paths needed by lv1.
+func (l *lv1) createPaths() error {
+
+}
+
+func (l *lv1) makeSeg(iter *pebble.Iterator) error {
+
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := iter.Key()
+		v := iter.Value()
+	}
+	err = iter.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (l *lv1) makeSegPath(id uint32) (seg, idx string) {
+
+}
 
 var candidatesPool = sync.Pool{New: func() interface{} {
 	return make([]int, 0, 128) // Actually it will only use 1 if all chunks are sorted.
@@ -132,7 +148,7 @@ func (l *lv1) makeChunkIdx(items []index.OffsetIndexItem, logicTimestamp int64) 
 	}
 
 	start, end := items[0].Key, items[len(items)-1].Key
-	idxFn := filepath.Join(l.path, chunksDir, tmpDir,
+	idxFn := filepath.Join(l.path, segsDir, tmpDir,
 		fmt.Sprintf("%s.idx", strings.Join([]string{start, end, strconv.FormatInt(logicTimestamp, 10)}, "_")))
 
 	f, err := l.fs.Create(idxFn)
@@ -146,7 +162,7 @@ func (l *lv1) makeChunkIdx(items []index.OffsetIndexItem, logicTimestamp int64) 
 		return nil, err
 	}
 
-	buf := xbytes.GetAlignedBytes(chunkBufSize)
+	buf := xbytes.GetAlignedBytes(segBufSize)
 	defer xbytes.PutBytes(buf)
 
 	makeChunkIdxHeader(version1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), buf)
@@ -162,7 +178,7 @@ func (l *lv1) makeChunkIdx(items []index.OffsetIndexItem, logicTimestamp int64) 
 		done += undone
 
 		undone = copy(buf, idxBytes[done:])
-		off += chunkBufSize
+		off += segBufSize
 	}
 
 	return idx, nil

@@ -35,6 +35,20 @@ That's all! zMatrix is surprisingly simple for beginners!
 
 ### Operation Guide
 
+### Layout on local file system
+
+#### Disks
+
+```shell
+<data_root>/disk_<disk_id>
+```
+
+#### Database
+
+```shell
+<data_root>/disk_<disk_id>/zmatrix/db_<db_id>
+```
+
 ### Warn
 
 #### Design for small entries only
@@ -50,3 +64,4 @@ protection for data storage in zMatrix.
 ### Other Limitations
 
 1. Maximum key length is 255 bytes. (fixed on 8 bytes is highly recommended!)
+2. Maximum database count is 16. Using prefix to separate different datasets if there is no enough database.
