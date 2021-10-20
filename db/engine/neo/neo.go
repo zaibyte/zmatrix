@@ -2,6 +2,7 @@ package neo
 
 import (
 	"io"
+	"sync/atomic"
 
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xio"
@@ -29,7 +30,7 @@ type Database struct {
 	id uint32
 	// volatile data, count bytes in lvl0 roughly for triggering flushing job to lvl1.
 	// After flushing, should minus bytes flushed.
-	lvl0Used       int
+	lvl0Used       uint64
 	lvl0DirtyCount uint64
 }
 
@@ -76,9 +77,10 @@ func (d *Database) Set(key, value []byte) error {
 	var err error
 	defer func() {
 		if err == nil {
-			d.lvl0Used += len(key)
-			d.lvl0Used += len(value)
-			d.lvl0DirtyCount++
+
+			atomic.AddUint64(&d.lvl0Used, uint64(len(key)))
+			atomic.AddUint64(&d.lvl0Used, uint64(len(value)))
+			atomic.AddUint64(&d.lvl0DirtyCount, 1)
 		}
 	}()
 
@@ -100,9 +102,9 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 			for i := range keys {
 				key := keys[i]
 				value := values[i]
-				d.lvl0Used += len(key)
-				d.lvl0Used += len(value)
-				d.lvl0DirtyCount++
+				atomic.AddUint64(&d.lvl0Used, uint64(len(key)))
+				atomic.AddUint64(&d.lvl0Used, uint64(len(value)))
+				atomic.AddUint64(&d.lvl0DirtyCount, 1)
 			}
 		}
 	}()
