@@ -20,11 +20,9 @@ import (
 //	│ 			   ├── ...
 
 const (
-	lv0DirName = "lv0"
-	lv1DirName = "lv1"
-	segsDir    = "segments"
-
-	toLvl1Threshold = 8 * 1024 * 1024 * 1024 // At least 8 GiB. Around 1 millions objects for small entries.
+	lv0DirName     = "lv0"
+	lv1DirName     = "lv1"
+	lv1SegsDirName = "segments"
 )
 
 type Database struct {
