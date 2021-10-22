@@ -98,7 +98,6 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 
 	defer func() {
 		if err == nil {
-
 			for i := range keys {
 				key := keys[i]
 				value := values[i]

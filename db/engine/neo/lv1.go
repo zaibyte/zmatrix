@@ -8,8 +8,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unsafe"
 
-	"github.com/cockroachdb/pebble"
+	"g.tesamc.com/IT/zaipkg/directio"
+
+	"g.tesamc.com/IT/zaipkg/xlog"
 
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/vfs"
@@ -20,6 +23,7 @@ import (
 	"g.tesamc.com/IT/zaipkg/xstrconv"
 
 	"github.com/cespare/xxhash/v2"
+	"github.com/cockroachdb/pebble"
 	"github.com/openacid/slim/index"
 	"github.com/templexxx/bsegtree"
 )
@@ -34,17 +38,22 @@ import (
 //  │              ├── <segment_id>.idx
 //	│ 			   ├── ...
 
-type lv1 struct {
-	sync.RWMutex
-	nextSegID uint32
-	indexes   []*index.SlimIndex
+const (
+	segSuffix    = ".seg"
+	segIdxSuffix = ".idx"
+)
 
-	path string // <database_path>/lv1/
+type lv1 struct {
+	nextSegID int64            // start from 1.
+	indexes   []unsafe.Pointer // *index.SlimIndex
+
+	segsPath string
+	segSize  int64
 
 	sched xio.Scheduler
 	fs    vfs.FS
 
-	ranges bsegtree.Tree
+	ranges unsafe.Pointer // *bsegtree.BSTree
 }
 
 const (
@@ -54,21 +63,164 @@ const (
 	chunkIdxHeaderSize = 4 * 1024
 )
 
-// createPaths creates paths needed by lv1.
-func (l *lv1) createPaths() error {
+func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler, segSize int64) (l *lv1, err error) {
 
+	sp, err := createLv1Paths(dbPath, fs)
+	if err != nil {
+		return nil, err
+	}
+
+	t := new(bsegtree.BSTree)
+	t.Clear()
+
+	l = &lv1{
+		nextSegID: 1,
+		indexes:   make([]unsafe.Pointer, 1024, 1024),
+		segsPath:  sp,
+		segSize:   segSize,
+		sched:     sched,
+		fs:        fs,
+		ranges:    unsafe.Pointer(t),
+	}
+
+	return
 }
 
-func (l *lv1) makeSeg(iter *pebble.Iterator) error {
+// createLv1Paths create paths needed by lv1, and return segments paths.
+func createLv1Paths(dbPath string, fs vfs.FS) (string, error) {
+	dir := makeL1Dir(dbPath)
+	err := fs.MkdirAll(dir, 0755)
+	if err != nil {
+		return "", err
+	}
+
+	sp := makeL1SegDir(dir)
+	err = fs.MkdirAll(sp, 0755)
+	if err != nil {
+		return "", err
+	}
+	return sp, nil
+}
+
+func makeL1Dir(dbPath string) string {
+	return filepath.Join(dbPath, lv1DirName)
+}
+
+func makeL1SegDir(l1Dir string) string {
+	return filepath.Join(l1Dir, lv1SegsDirName)
+}
+
+func (l *lv1) makeSegFile() (f vfs.File, id int64, err error) {
+
+	id = l.nextSegID
+	defer func() {
+		l.nextSegID++
+	}()
+
+	fp := makeSegPath(l.segsPath, id)
+
+	f, err = l.fs.Create(fp)
+	if err != nil {
+		return nil, id, err
+	}
+
+	err = vfs.TryFAlloc(f, l.segSize)
+	if err != nil {
+		return
+	}
+
+	return f, id, nil
+}
+
+func makeSegPath(segsPath string, id int64) string {
+	return filepath.Join(segsPath, strconv.FormatInt(id, 10)+segSuffix)
+}
+
+func makeSegIdxPath(segsPath string, id int64) string {
+	return filepath.Join(segsPath, strconv.FormatInt(id, 10)+segIdxSuffix)
+}
+
+func (l *lv1) makeSeg(snap *pebble.Snapshot) error {
+
+	var err error
+	var id int64
+	var segF, segIdxF vfs.File
+	defer func() {
+		if err != nil {
+			err = xerrors.WithMessage(err, "failed to make seg")
+			xlog.Error(err.Error())
+			if segF != nil {
+				_ = segF.Close()
+			}
+			if segIdxF != nil {
+				_ = segIdxF.Close()
+			}
+			cleanDirtySeg(l.fs, l.segsPath, id)
+		}
+	}()
+
+	segF, id, err = l.makeSegFile()
+	if err != nil {
+		return err
+	}
+
+	items := make([]index.OffsetIndexItem, 0, DefaultToLv1MaxEntries)
+	iter := snap.NewIter(nil)
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := iter.Key()
-		v := iter.Value()
+		items = append(items, index.OffsetIndexItem{Key: string(k)})
 	}
 	err = iter.Close()
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
+
+	sort.Sort(idxItems(items))
+	// 1. items first and last be segment in seg tree
+
+	buf := directio.AlignedBlock(4*1024*1024 + 4*1024) // Max key+value. If larger, will allocate new space.
+
+	// 1. offset align to 8 KB
+	// 2. combine key + value, then send to scheduler
+	for _, item := range items {
+		val, closer, err := snap.Get(xstrconv.ToBytes(item.Key))
+		if err != nil {
+			return err
+		}
+
+	}
+
+}
+
+func (l *lv1) fillIdx(items []index.OffsetIndexItem, snap *pebble.Snapshot)
+
+type idxItems []index.OffsetIndexItem
+
+func (e idxItems) Len() int {
+	return len(e)
+}
+
+func (e idxItems) Less(i, j int) bool {
+
+	return e[i].Key < e[j].Key
+}
+
+func (e idxItems) Swap(i, j int) {
+	e[i], e[j] = e[j], e[i]
+}
+
+func cleanDirtySeg(fs vfs.FS, segsPath string, id int64) {
+
+	if id == 0 {
+		return
+	}
+
+	sp := makeSegPath(segsPath, id)
+	sip := makeSegIdxPath(segsPath, id)
+
+	_ = fs.Remove(sp)
+	_ = fs.Remove(sip)
 }
 
 func (l *lv1) makeSegPath(id uint32) (seg, idx string) {
@@ -148,7 +300,7 @@ func (l *lv1) makeChunkIdx(items []index.OffsetIndexItem, logicTimestamp int64) 
 	}
 
 	start, end := items[0].Key, items[len(items)-1].Key
-	idxFn := filepath.Join(l.path, segsDir, tmpDir,
+	idxFn := filepath.Join(l.path, lv1SegsDirName, tmpDir,
 		fmt.Sprintf("%s.idx", strings.Join([]string{start, end, strconv.FormatInt(logicTimestamp, 10)}, "_")))
 
 	f, err := l.fs.Create(idxFn)
