@@ -12,7 +12,33 @@ PebbleDB is the core of write buffer.
 
 ## Level1: Read Only Level
 
-It's maintained by hashing & several trie tree.
+It's maintained by segment tree & several trie tree.
+
+### Arch
+
+### Local Storage
+
+#### Segment
+
+##### Block
+
+The major struct for block is the first block, first block will record the count of items in this block, and hashes of keys.
+
+First Block:
+
+```shell
+| cnt(2B) | hash(8B) * cnt | offset(2B)_size(4B) * cnt | values...|
+```
+
+cnt is the total items in this block. For most cases the cnt is 1, except many items could be put into single 8KB block.
+
+hash is xxhash of item's key.
+
+offset is value's offset from the first byte in this block.
+
+size is value size.
+
+
 
 ## Data Flow
 
