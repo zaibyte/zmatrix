@@ -227,6 +227,11 @@ func (c *Client) Remove(db uint32) error {
 	return err
 }
 
+func (c *Client) Seal(db uint32) error {
+	_, _, err := c.call(db, sealMethod, nil, nil)
+	return err
+}
+
 // call sends the given request to the server and obtains response
 // from the server.
 //

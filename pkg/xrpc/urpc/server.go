@@ -385,21 +385,24 @@ func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqVa
 	if method == getMethod {
 		return s.Handler.Get(dbID, reqKey)
 	}
-	if method == setMethod {
+
+	switch method {
+	case setMethod:
 		err = s.Handler.Set(dbID, reqKey, reqValue)
 		return nil, nil, err
-	}
-	if method == setBatchMethod {
+	case setBatchMethod:
 		keys, values := extraSetBatchReq(reqValue)
 		err = s.Handler.SetBatch(dbID, keys, values)
 		return nil, nil, err
-	}
-	if method == removeMethod {
+	case removeMethod:
 		err = s.Handler.Remove(dbID)
 		return nil, nil, err
+	case sealMethod:
+		err = s.Handler.Seal(dbID)
+		return nil, nil, err
+	default:
+		return nil, nil, orpc.ErrNotImplemented
 	}
-
-	return nil, nil, orpc.ErrNotImplemented
 }
 
 func (s *Server) serverWriter(w net.Conn, responsesChan <-chan *serverMessage, stopChan <-chan struct{}, done chan<- struct{}) {

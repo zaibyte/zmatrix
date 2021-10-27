@@ -40,6 +40,7 @@ const (
 	getMethod      uint8 = 2
 	setBatchMethod uint8 = 3
 	removeMethod   uint8 = 4
+	sealMethod     uint8 = 5
 )
 
 type header interface {

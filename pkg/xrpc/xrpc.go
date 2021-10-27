@@ -10,6 +10,7 @@ type Client interface {
 	Get(db uint32, key []byte) ([]byte, io.Closer, error)
 	SetBatch(db uint32, keys, values [][]byte) error
 	Remove(db uint32) error
+	Seal(db uint32) error
 	StartStopper
 }
 
@@ -33,4 +34,6 @@ type ServerHandler interface {
 	SetBatch(db uint32, keys, values [][]byte) error
 	// Remove removes database entirely.
 	Remove(db uint32) error
+	// Seal seals database.
+	Seal(db uint32) error
 }

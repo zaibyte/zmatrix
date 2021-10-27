@@ -53,6 +53,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"g.tesamc.com/IT/zaipkg/directio"
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xbytes"
@@ -76,6 +78,7 @@ type testHandler struct {
 	getFn      func(db uint32, key []byte) (value []byte, closer io.Closer, err error)
 	setBatchFn func(db uint32, keys, values [][]byte) error
 	removeFn   func(db uint32) error
+	sealFn     func(db uint32) error
 }
 
 func (h *testHandler) Set(db uint32, key, value []byte) error {
@@ -94,6 +97,10 @@ func (h *testHandler) Remove(db uint32) error {
 	return h.removeFn(db)
 }
 
+func (h *testHandler) Seal(db uint32) error {
+	return h.sealFn(db)
+}
+
 func nopHandler() *testHandler {
 	return &testHandler{
 		setFn: func(db uint32, key, value []byte) error {
@@ -106,6 +113,9 @@ func nopHandler() *testHandler {
 			return nil
 		},
 		removeFn: func(db uint32) error {
+			return nil
+		},
+		sealFn: func(db uint32) error {
 			return nil
 		},
 	}
@@ -133,6 +143,33 @@ func getRandomTCPAddr() string {
 func newTestClient(addr string) *Client {
 	c := NewClient(addr)
 	return c
+}
+
+func TestClient_Seal(t *testing.T) {
+
+	addr := getRandomAddr()
+	defer cleanSockets()
+
+	h := nopHandler()
+	h.sealFn = func(db uint32) error {
+		return orpc.ErrNotFound
+	}
+
+	s := NewServer(addr, h)
+	if err := s.Start(); err != nil {
+		t.Fatalf("cannot start server: %s", err)
+	}
+	defer s.Stop(nil)
+
+	c := newTestClient(addr)
+	err := c.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Stop(nil)
+
+	err = c.Seal(1)
+	assert.Equal(t, orpc.ErrNotFound, err)
 }
 
 func TestClient_Get(t *testing.T) {
