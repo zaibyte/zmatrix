@@ -140,7 +140,7 @@ func makeSegIdxPath(segsPath string, id int64) string {
 	return filepath.Join(segsPath, strconv.FormatInt(id, 10)+segIdxSuffix)
 }
 
-func (l *lv1) makeSeg(snap *pebble.Snapshot) error {
+func (l *lv1) makeSeg(snap *pebble.Snapshot, dirtyCnt int) error {
 
 	var err error
 	var id int64
@@ -164,11 +164,14 @@ func (l *lv1) makeSeg(snap *pebble.Snapshot) error {
 		return err
 	}
 
-	items := make([]index.OffsetIndexItem, 0, DefaultToLv1MaxEntries)
+	// Set in Lv0 maybe much faster than transferring to lv1,
+	// dirtyCnt will be larger than DefaultToLv1MaxEntries in production env.
+	items := make([]index.OffsetIndexItem, 0, dirtyCnt)
 	iter := snap.NewIter(nil)
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := iter.Key()
+
 		items = append(items, index.OffsetIndexItem{Key: string(k)})
 	}
 	err = iter.Close()
@@ -176,19 +179,56 @@ func (l *lv1) makeSeg(snap *pebble.Snapshot) error {
 		return err
 	}
 
-	sort.Sort(idxItems(items))
+	sort.Sort(idxItems(items)) // Sort by key in asc order.
 	// 1. items first and last be segment in seg tree
 
 	buf := directio.AlignedBlock(4*1024*1024 + 4*1024) // Max key+value. If larger, will allocate new space.
 
 	// 1. offset align to 8 KB
 	// 2. combine key + value, then send to scheduler
+	// 3. after all traSnsfer
+	// 4. delete one by one in lv0
+	// 5. write down lv1 index
+	// 6. update index in lv1
+
+	itemOff := lv1BlockCntSize
+	written := int64(0)
+	offset := int64(0) // offset from segment file.
+
+	itemsInBlock := 0
+	hs := make([]uint64, 0, 8)
+	offs := make([]uint16, 0, 8)
+	sizes := make([]uint32, 0, 8)
+
 	for _, item := range items {
-		val, closer, err := snap.Get(xstrconv.ToBytes(item.Key))
+
+		if xbytes.AlignSize(written, directio.AlignSize) >= lv1FirstBlockSize {
+
+			makeFirstBlockHeader(buf, itemsInBlock, hs, offs, sizes)
+
+			err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:xbytes.AlignSize(written, directio.AlignSize)])
+			if err != nil {
+				return err
+			}
+
+			itemsInBlock = 0
+			hs = hs[:0]
+			offs = offs[:0]
+			sizes = sizes[:0]
+			written = 0
+		}
+
+		kbs := xstrconv.ToBytes(item.Key)
+		val, closer, err := snap.Get(kbs)
 		if err != nil {
 			return err
 		}
+		itemOff += 8 // hash
+		itemOff += 6 // offset + size
+		itemOff += len(kbs)
+		itemOff += len(val)
 
+		written += itemOff
 	}
 
 }

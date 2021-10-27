@@ -14,6 +14,22 @@ const (
 	lv1FirstBlockSize = lv1BlockAlignSize
 )
 
+func makeFirstBlockHeader(buf []byte, cnt int, hs []uint64, offs []uint16, sizes []uint32) {
+
+	off := lv1BlockCntSize
+	binary.LittleEndian.PutUint16(buf[:off], uint16(cnt))
+	for i := range hs {
+		binary.LittleEndian.PutUint64(buf[off:off+8], hs[i])
+		off += 8
+	}
+	for i := range offs {
+		binary.LittleEndian.PutUint16(buf[off:off+2], offs[i])
+		off += 2
+		binary.LittleEndian.PutUint32(buf[off:off+4], sizes[i])
+		off += 4
+	}
+}
+
 // searchInBlock searches the firstBlock of a key (returned by index),
 // return offset from the first byte of firstBlock, and value size if found (ok will be true).
 //
