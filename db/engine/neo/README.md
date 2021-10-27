@@ -34,17 +34,13 @@ cnt is the total items in this block. For most cases the cnt is 1, except many i
 
 hash is xxhash of item's key.
 
-offset is value's offset from the first byte in this block.
+offset is key_value's offset from the first byte in this block.
 
 size is value size.
 
 All above is little endian.
 
 For keys_values:
-
-If the cnt is 1, keys_values is just item value.
-
-If the cnt > 1, keys_values:
 
 ```shell
 | key1 | value1 | key2 | value2 | ... |

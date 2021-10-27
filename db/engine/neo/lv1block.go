@@ -10,7 +10,7 @@ import (
 
 const (
 	lv1BlockCntSize   = 2
-	lv1BlockAlignSize = 8 * 1024 //
+	lv1BlockAlignSize = 8 * 1024 // 8 KiB could get the best balance between index memory overhead & small items random access performance.
 	lv1FirstBlockSize = lv1BlockAlignSize
 )
 
@@ -23,6 +23,7 @@ func searchInBlock(firstBlock, key []byte) (offset uint16, size uint32, ok bool)
 	cnt := binary.LittleEndian.Uint16(firstBlock[:lv1BlockCntSize])
 	if cnt == 1 {
 		offset, size = getOffsetSizeFromBlock(firstBlock, 1, 0)
+		offset += uint16(len(key))
 		ok = true
 		return
 	}
@@ -69,6 +70,7 @@ func getNFromBlock(firstBlock []byte, cnt int, h uint64) (n []int, ok bool) {
 
 // cnt is total items count.
 // n is item position. [0, cnt) .
+// offset is key_value offset from first byte of firstBlock.
 func getOffsetSizeFromBlock(firstBlock []byte, cnt, n int) (offset uint16, size uint32) {
 
 	off := lv1BlockCntSize + cnt*8 // offset_size pairs start from off.
