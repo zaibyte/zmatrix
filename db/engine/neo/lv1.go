@@ -140,7 +140,8 @@ func makeSegIdxPath(segsPath string, id int64) string {
 	return filepath.Join(segsPath, strconv.FormatInt(id, 10)+segIdxSuffix)
 }
 
-func (l *lv1) makeSeg(snap *pebble.Snapshot, dirtyCnt int) error {
+// makeSegIdx write down segment and making segment index.
+func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex, error) {
 
 	var err error
 	var id int64
@@ -161,7 +162,7 @@ func (l *lv1) makeSeg(snap *pebble.Snapshot, dirtyCnt int) error {
 
 	segF, id, err = l.makeSegFile()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set in Lv0 maybe much faster than transferring to lv1,
@@ -176,13 +177,13 @@ func (l *lv1) makeSeg(snap *pebble.Snapshot, dirtyCnt int) error {
 	}
 	err = iter.Close()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sort.Sort(idxItems(items)) // Sort by key in asc order.
 	// 1. items first and last be segment in seg tree
 
-	buf := directio.AlignedBlock(4*1024*1024 + 4*1024) // Max key+value. If larger, will allocate new space.
+	buf := directio.AlignedBlock(4*1024*1024 + 2*lv1BlockMinSize) // Max space wil be taken by one item.
 
 	// 1. offset align to 8 KB
 	// 2. combine key + value, then send to scheduler
@@ -191,46 +192,64 @@ func (l *lv1) makeSeg(snap *pebble.Snapshot, dirtyCnt int) error {
 	// 5. write down lv1 index
 	// 6. update index in lv1
 
-	itemOff := lv1BlockCntSize
-	written := int64(0)
-	offset := int64(0) // offset from segment file.
+	itemOff := lv1BlockHeaderSize // This item offset from first byte of a block.
+	offset := int64(0)            // offset from segment file.
 
 	itemsInBlock := 0
-	hs := make([]uint64, 0, 8)
-	offs := make([]uint16, 0, 8)
-	sizes := make([]uint32, 0, 8)
+	hs := make([]uint64, 0, lv1BlockMaxItems)
+	offs := make([]uint16, 0, lv1BlockMaxItems)
+	sizes := make([]uint32, 0, lv1BlockMaxItems)
+	itemsIdxInBlock := make([]int, 0, lv1BlockMaxItems)
 
-	for _, item := range items {
+	for i, item := range items {
 
-		if xbytes.AlignSize(written, directio.AlignSize) >= lv1FirstBlockSize {
+		wa := xbytes.AlignSize(int64(itemOff), directio.BlockSize)
 
-			makeFirstBlockHeader(buf, itemsInBlock, hs, offs, sizes)
+		if wa >= lv1BlockMinSize || itemsInBlock == 8 {
 
-			err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:xbytes.AlignSize(written, directio.AlignSize)])
+			makeLv1MinBlock(buf, itemsInBlock, hs, offs, sizes)
+
+			err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:wa])
 			if err != nil {
-				return err
+				return nil, err
 			}
+
+			for _, idx := range itemsIdxInBlock {
+				items[idx].Offset = offset
+			}
+
+			itemOff = lv1BlockHeaderSize
+			offset += wa
 
 			itemsInBlock = 0
 			hs = hs[:0]
 			offs = offs[:0]
 			sizes = sizes[:0]
-			written = 0
+			itemsIdxInBlock = itemsIdxInBlock[:0]
 		}
 
 		kbs := xstrconv.ToBytes(item.Key)
 		val, closer, err := snap.Get(kbs)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		itemOff += 8 // hash
-		itemOff += 6 // offset + size
+
+		offs = append(offs, uint16(itemOff))
+
+		copy(buf[itemOff:], kbs)
 		itemOff += len(kbs)
+		copy(buf[itemOff:], val)
 		itemOff += len(val)
 
-		written += itemOff
+		itemsInBlock++
+		hs = append(hs, xxhash.Sum64(kbs))
+		sizes = append(sizes, uint32(len(val)))
+		itemsIdxInBlock = append(itemsIdxInBlock, i)
+
+		_ = closer.Close()
 	}
 
+	return index.NewSlimIndex(items, nil)
 }
 
 func (l *lv1) fillIdx(items []index.OffsetIndexItem, snap *pebble.Snapshot)

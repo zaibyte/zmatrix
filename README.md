@@ -58,6 +58,8 @@ Big object may block disk I/O too long and damage latency of other small request
 
 zMatrix is amazing when hold billions files around KB.
 
+Object cannot be bigger than 4 MiB.
+
 #### Design for short-lived entries only
 
 DO Not use it for long-term storage. zMatrix has no physical/logical replicas and there is no completed Silent Data Corruption
@@ -72,4 +74,4 @@ Cannot continue operating despite failures or malfunctions. Any serious(e.g., di
 1. Maximum key length is 255 bytes. (fixed on 8 bytes is highly recommended!)
 2. Maximum database count is 16. Using prefix to separate different datasets if there is no enough database.
 3. Maximum capacity of each database is 8 TiB.
-4. Maximum entries count of each database is 2^32 (4.2 billions)
+4. Maximum entries count of each database is 2^33 (8 billions)
