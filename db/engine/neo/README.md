@@ -22,23 +22,21 @@ It's maintained by segment tree & several trie tree.
 
 ##### Block
 
-The major struct for block is the first block, first block will record the count of items in this block, and hashes of keys.
-
-First Block:
+The min size of block is 8 KiB, it could contain one or more items (at most 8).
 
 ```shell
-| cnt(2B) | hash(8B) * cnt | offset(2B)_size(4B) * cnt | keys_values...|
+| cnt(2B) | hash(8B) * 8 | offset(2B)_size(4B) * 8 | keys_values...|
 ```
 
-cnt is the total items in this block. For most cases the cnt is 1, except many items could be put into single 8KB block.
+cnt is the actual items in this block. For most cases the cnt is 1.
 
-hash is xxhash of item's key.
+hash is xxhash of item's key, will take fixed 8 slots.
 
 offset is key_value's offset from the first byte in this block.
 
 size is value size.
 
-All above is header of first block, and all of them are in little endian.
+All above is header of block, and all of them are in little endian.
 
 For keys_values:
 
