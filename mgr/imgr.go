@@ -2,6 +2,7 @@ package mgr
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"g.tesamc.com/IT/zmatrix/db"
@@ -40,4 +41,19 @@ const (
 // MakeDBDir makes database path under the diskDir.
 func MakeDBDir(dbID uint32, diskDir string) string {
 	return filepath.Join(diskDir, dbHomeDirName, dbNamePrefix+cast.ToString(dbID))
+}
+
+// IsDBDir returns true if the file name matches database path format and return the dbID.
+func IsDBDir(dbDirName string) (bool, uint32) {
+
+	if !strings.HasPrefix(dbDirName, dbNamePrefix) {
+		return false, 0
+	}
+
+	id, err := cast.ToUint32E(strings.TrimPrefix(dbDirName, dbNamePrefix))
+	if err != nil {
+		return false, 0
+	}
+
+	return true, id
 }
