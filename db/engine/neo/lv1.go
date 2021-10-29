@@ -2,12 +2,10 @@ package neo
 
 import (
 	"encoding/binary"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
-	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"g.tesamc.com/IT/zaipkg/directio"
@@ -44,11 +42,11 @@ const (
 )
 
 type lv1 struct {
-	nextSegID int64            // start from 1.
+	nextSegID int64            // start from 0.
+	segs      []unsafe.Pointer // *vfs.DirectFile.
 	indexes   []unsafe.Pointer // *index.SlimIndex
 
 	segsPath string
-	segSize  int64
 
 	sched xio.Scheduler
 	fs    vfs.FS
@@ -57,13 +55,13 @@ type lv1 struct {
 }
 
 const (
-	segBufSize = 32 * 1024
+	segBufSize = 512 * 1024
 
 	version1           = uint32(1) // In present, we only has one version.
 	chunkIdxHeaderSize = 4 * 1024
 )
 
-func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler, segSize int64) (l *lv1, err error) {
+func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) {
 
 	sp, err := createLv1Paths(dbPath, fs)
 	if err != nil {
@@ -74,10 +72,9 @@ func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler, segSize int64) (l 
 	t.Clear()
 
 	l = &lv1{
-		nextSegID: 1,
+		nextSegID: 0,
 		indexes:   make([]unsafe.Pointer, 1024, 1024),
 		segsPath:  sp,
-		segSize:   segSize,
 		sched:     sched,
 		fs:        fs,
 		ranges:    unsafe.Pointer(t),
@@ -110,11 +107,13 @@ func makeL1SegDir(l1Dir string) string {
 	return filepath.Join(l1Dir, lv1SegsDirName)
 }
 
-func (l *lv1) makeSegFile() (f vfs.File, id int64, err error) {
+func (l *lv1) makeSegFile(minSize int64) (f vfs.File, id int64, err error) {
 
 	id = l.nextSegID
 	defer func() {
-		l.nextSegID++
+		if err == nil {
+			l.nextSegID++
+		}
 	}()
 
 	fp := makeSegPath(l.segsPath, id)
@@ -124,7 +123,7 @@ func (l *lv1) makeSegFile() (f vfs.File, id int64, err error) {
 		return nil, id, err
 	}
 
-	err = vfs.TryFAlloc(f, l.segSize)
+	err = vfs.TryFAlloc(f, minSize) // Ensure has enough space.
 	if err != nil {
 		return
 	}
@@ -141,11 +140,13 @@ func makeSegIdxPath(segsPath string, id int64) string {
 }
 
 // makeSegIdx write down segment and making segment index.
-func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex, error) {
+// segment file will be added in memory.
+//
+// minSize is key + value size for this snapshot counted by neo.
+func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
+	id int64, idx *index.SlimIndex, min, max string, err error) {
 
-	var err error
-	var id int64
-	var segF, segIdxF vfs.File
+	var segF vfs.File
 	defer func() {
 		if err != nil {
 			err = xerrors.WithMessage(err, "failed to make seg")
@@ -153,16 +154,13 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex,
 			if segF != nil {
 				_ = segF.Close()
 			}
-			if segIdxF != nil {
-				_ = segIdxF.Close()
-			}
 			cleanDirtySeg(l.fs, l.segsPath, id)
 		}
 	}()
 
-	segF, id, err = l.makeSegFile()
+	segF, id, err = l.makeSegFile(minSize)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Set in Lv0 maybe much faster than transferring to lv1,
@@ -177,20 +175,12 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex,
 	}
 	err = iter.Close()
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	sort.Sort(idxItems(items)) // Sort by key in asc order.
-	// 1. items first and last be segment in seg tree
 
 	buf := directio.AlignedBlock(4*1024*1024 + 2*lv1BlockMinSize) // Max space wil be taken by one item.
-
-	// 1. offset align to 8 KB
-	// 2. combine key + value, then send to scheduler
-	// 3. after all traSnsfer
-	// 4. delete one by one in lv0
-	// 5. write down lv1 index
-	// 6. update index in lv1
 
 	itemOff := lv1BlockHeaderSize // This item offset from first byte of a block.
 	offset := int64(0)            // offset from segment file.
@@ -211,7 +201,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex,
 
 			err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:wa])
 			if err != nil {
-				return nil, err
+				return
 			}
 
 			for _, idx := range itemsIdxInBlock {
@@ -231,7 +221,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex,
 		kbs := xstrconv.ToBytes(item.Key)
 		val, closer, err := snap.Get(kbs)
 		if err != nil {
-			return nil, err
+			return 0, nil, "", "", err
 		}
 
 		offs = append(offs, uint16(itemOff))
@@ -249,10 +239,69 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int) (*index.SlimIndex,
 		_ = closer.Close()
 	}
 
-	return index.NewSlimIndex(items, nil)
+	idx, err = index.NewSlimIndex(items, nil)
+	if err != nil {
+		return
+	}
+
+	atomic.StorePointer(&l.segs[id], unsafe.Pointer(segF.(*vfs.DirectFile)))
+
+	return id, idx, items[0].Key, items[len(items)-1].Key, nil
 }
 
-func (l *lv1) fillIdx(items []index.OffsetIndexItem, snap *pebble.Snapshot)
+// addSeg adds its index to lv1.
+// index on local:
+// 4KB header + index_bytes
+func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex, min, max []byte) error {
+
+	idxFp := makeSegIdxPath(l.segsPath, id)
+
+	f, err := l.fs.Create(idxFp)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	idxBytes, err := idx.Marshal()
+	if err != nil {
+		return err
+	}
+
+	buf := xbytes.GetAlignedBytes(segBufSize)
+	defer xbytes.PutBytes(buf)
+
+	makeSegIdxHeader(version1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), min, max, buf)
+	undone := copy(buf[chunkIdxHeaderSize:], idxBytes)
+	done, off := 0, int64(0)
+	for done < len(idxBytes) {
+
+		err = l.sched.DoSync(xio.ReqChunkWrite, f, off, buf)
+		if err != nil {
+			return err
+		}
+
+		done += undone
+
+		undone = copy(buf, idxBytes[done:])
+		off += segBufSize
+	}
+
+	atomic.StorePointer(&l.indexes[id], unsafe.Pointer(idx))
+
+	var st *bsegtree.BSTree
+	ost := atomic.LoadPointer(&l.ranges)
+	if ost == nil {
+		st = bsegtree.New().(*bsegtree.BSTree)
+	} else {
+		st = (*bsegtree.BSTree)(ost).Clone().(*bsegtree.BSTree)
+	}
+	st.Push(min, max)
+	st.Build()
+
+	atomic.StorePointer(&l.ranges, unsafe.Pointer(st))
+
+	return nil
+}
 
 type idxItems []index.OffsetIndexItem
 
@@ -282,120 +331,7 @@ func cleanDirtySeg(fs vfs.FS, segsPath string, id int64) {
 	_ = fs.Remove(sip)
 }
 
-func (l *lv1) makeSegPath(id uint32) (seg, idx string) {
-
-}
-
-var candidatesPool = sync.Pool{New: func() interface{} {
-	return make([]int, 0, 128) // Actually it will only use 1 if all chunks are sorted.
-}}
-
-// chunkCandidates returns candidates of chunks for a specific key.
-func (l *lv1) chunkCandidates(key []byte) []int {
-	l.RLock()
-	defer l.RUnlock()
-
-	keys := xstrconv.ToString(key)
-
-	cnt := len(l.indexes)
-
-	minC := sort.Search(cnt, func(i int) bool {
-		start := l.indexes[i].start
-		end := l.indexes[i].end
-
-		if keys >= start && keys <= end {
-			return true
-		}
-		return false
-	})
-	if minC == cnt {
-		return nil
-	}
-
-	c := candidatesPool.Get().([]int)[:0]
-	c = append(c, minC)
-
-	for i := minC + 1; i < cnt; i++ {
-		start := l.indexes[i].start
-		end := l.indexes[i].end
-
-		if keys >= start && keys <= end {
-			c = append(c, i)
-			continue
-		}
-		break
-	}
-
-	return c
-}
-
-func (l *lv1) addChunkIdx(items []index.OffsetIndexItem, logicTimestamp int64) error {
-
-	idx, err := l.makeChunkIdx(items, logicTimestamp)
-	if err != nil {
-		return err
-	}
-
-	start, end := items[0].Key, items[len(items)-1].Key
-
-	l.Lock()
-	defer l.Unlock()
-
-	l.indexes = append(l.indexes, rangeIdx{start: start, end: end, idx: idx})
-	sort.Sort(rangeIdxes(l.indexes))
-
-	l.fs.Rename()
-}
-
-// makeChunkIdx makes index of the chunk and persist it.
-// logicTimestamp must be same as the chunk data's.
-//
-// chunk index on local:
-// 4KB header + index_bytes
-func (l *lv1) makeChunkIdx(items []index.OffsetIndexItem, logicTimestamp int64) (*index.SlimIndex, error) {
-	idx, err := index.NewSlimIndex(items, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	start, end := items[0].Key, items[len(items)-1].Key
-	idxFn := filepath.Join(l.path, lv1SegsDirName, tmpDir,
-		fmt.Sprintf("%s.idx", strings.Join([]string{start, end, strconv.FormatInt(logicTimestamp, 10)}, "_")))
-
-	f, err := l.fs.Create(idxFn)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	idxBytes, err := idx.Marshal()
-	if err != nil {
-		return nil, err
-	}
-
-	buf := xbytes.GetAlignedBytes(segBufSize)
-	defer xbytes.PutBytes(buf)
-
-	makeChunkIdxHeader(version1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), buf)
-	undone := copy(buf[chunkIdxHeaderSize:], idxBytes)
-	done, off := 0, int64(0)
-	for done < len(idxBytes) {
-
-		err = l.sched.DoSync(xio.ReqChunkWrite, f, off, buf)
-		if err != nil {
-			return nil, err
-		}
-
-		done += undone
-
-		undone = copy(buf, idxBytes[done:])
-		off += segBufSize
-	}
-
-	return idx, nil
-}
-
-func makeChunkIdxHeader(version uint32, checksum uint64, idxSize uint64, min, max, buf []byte) {
+func makeSegIdxHeader(version uint32, checksum uint64, idxSize uint64, min, max, buf []byte) {
 
 	binary.LittleEndian.PutUint32(buf, version)
 	binary.LittleEndian.PutUint64(buf[4:], checksum)
@@ -413,7 +349,7 @@ func makeChunkIdxHeader(version uint32, checksum uint64, idxSize uint64, min, ma
 	binary.LittleEndian.PutUint32(buf[chunkIdxHeaderSize-4:], headerChecksum)
 }
 
-func parseChunkIdxHeader(buf []byte) (version uint32, checksum uint64, idxSize uint64, err error) {
+func parseSegIdxHeader(buf []byte) (version uint32, checksum uint64, idxSize uint64, err error) {
 
 	c := binary.LittleEndian.Uint32(buf[chunkIdxHeaderSize-4:])
 

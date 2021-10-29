@@ -67,7 +67,7 @@ protection for data storage in zMatrix.
 
 #### Design for Non Fault Tolerance
 
-Cannot continue operating despite failures or malfunctions. Any serious(e.g., disk I/O) error will cause fatal.
+Cannot continue operating despite failures or malfunctions. Any serious(e.g., disk I/O) error will cause fatal and cannot give any promise after restart.
 
 ### Other Limitations
 

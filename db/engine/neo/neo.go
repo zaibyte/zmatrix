@@ -115,7 +115,11 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 // 3. if no, run tran in new goroutine
 // 4. if yes, do nothing
 func (d *Database) doTrans() {
-
+	// 1. write down seg
+	// 2. making lv1 index
+	// 3. delete one by one in lv0
+	// 4. write down lv1 index
+	// 5. update index in lv1
 }
 
 func (d *Database) Seal() error {

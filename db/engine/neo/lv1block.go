@@ -65,7 +65,7 @@ func searchInBlock(block, key []byte) (offset uint16, size uint32, ok bool) {
 }
 
 var intsPool = sync.Pool{New: func() interface{} {
-	return make([]int, 0, 2)
+	return make([]int, 0, 8)
 }}
 
 // getNFromBlock gets positions which have the same hash.
