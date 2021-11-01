@@ -67,7 +67,7 @@ protection for data storage in zMatrix.
 
 #### Design for Non Fault Tolerance
 
-Cannot continue operating despite failures or malfunctions. Any serious(e.g., disk I/O) error will cause fatal and cannot give any promise after restart.
+Cannot continue operating despite failures or malfunctions. Any serious(e.g., disk I/O) error will cause fatal and cannot give any promise after restart because lacking of mechanism of recovery.
 
 ### Other Limitations
 
@@ -75,3 +75,4 @@ Cannot continue operating despite failures or malfunctions. Any serious(e.g., di
 2. Maximum database count is 16. Using prefix to separate different datasets if there is no enough database.
 3. Maximum capacity of each database is 8 TiB.
 4. Maximum entries count of each database is 2^33 (8 billions)
+5. Value could not be updated/removed.

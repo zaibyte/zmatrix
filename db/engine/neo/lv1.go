@@ -3,6 +3,7 @@ package neo
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -183,7 +184,105 @@ func (l *lv1) loadSeg(ids string, buf []byte) error {
 	return nil
 }
 
-// TODO search
+// search key's value if existed.
+func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
+
+	ids, ok := l.searchSeg(key)
+	if !ok {
+		return nil, nil, orpc.ErrNotFound
+	}
+
+	for _, id := range ids {
+		segF, idx, ok := l.getSeg(id)
+		if ok {
+			o, found := idx.SlimTrie.RangeGet(xstrconv.ToString(key))
+			if !found {
+				continue
+			}
+			offset := o.(int64)
+			has, value, closer, err := l.getValueFromSeg(segF, offset, key)
+			if err != nil {
+				xlog.Errorf("failed to read seg: %s", err.Error())
+				continue
+			}
+			if !has {
+				continue
+			}
+			return value, closer, nil
+		}
+	}
+	return nil, nil, orpc.ErrNotFound
+}
+
+func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byte, io.Closer, error) {
+
+	buf := xbytes.GetAlignedBytes(lv1BlockAlignSize)
+	_, err := f.ReadAt(buf, offset)
+	if err != nil {
+		xbytes.PutAlignedBytes(buf)
+
+		return false, nil, nil, err
+	}
+
+	off, size, ok := searchInBlock(buf, key)
+	if !ok {
+		xbytes.PutAlignedBytes(buf)
+		return false, nil, nil, nil
+	}
+
+	start := int(off)
+	end := start + int(size)
+
+	if end <= lv1BlockAlignSize { // It's in this block.
+		return true, buf[start:end], xbytes.PoolAlignedBytesCloser{buf}, nil
+	}
+
+	xbytes.PutAlignedBytes(buf)
+
+	// sorry for allocating again :D
+	bigB := xbytes.GetAlignedBytes(int(xbytes.AlignSize(lv1BlockAlignSize+int64(size), 4096)))
+
+	_, err = f.ReadAt(bigB, offset)
+	if err != nil {
+		xbytes.PutAlignedBytes(bigB)
+		return false, nil, nil, err
+	}
+
+	return true, bigB[start:end], xbytes.PoolAlignedBytesCloser{bigB}, nil
+}
+
+// getSeg gets segment file & its index from memory.
+func (l *lv1) getSeg(id int) (segF vfs.File, idx *index.SlimIndex, ok bool) {
+
+	sp := atomic.LoadPointer(&l.segs[id])
+	if sp == nil {
+		return nil, nil, false
+	}
+	ip := atomic.LoadPointer(&l.indexes[id])
+	if ip == nil {
+		return nil, nil, false
+	}
+
+	return (*vfs.DirectFile)(sp), (*index.SlimIndex)(ip), true
+}
+
+// searchSeg tries to find out which segment the key belongs to.
+func (l *lv1) searchSeg(key []byte) (ids []int, ok bool) {
+
+	btp := atomic.LoadPointer(&l.ranges)
+
+	if btp == nil {
+		return nil, false
+	}
+
+	bt := (*bsegtree.BSTree)(btp)
+
+	ids = bt.QueryPoint(key)
+	if len(ids) == 0 {
+		return nil, false
+	}
+	return ids, true
+}
 
 // createLv1Paths create paths needed by lv1, and return segments paths.
 func createLv1Paths(dbPath string, fs vfs.FS) (string, error) {
@@ -224,6 +323,10 @@ func (l *lv1) makeSegFile(minSize int64) (f vfs.File, id int64, err error) {
 			l.nextSegID++
 		}
 	}()
+
+	if id >= 1024 {
+		return nil, 0, ErrLv1SegmentsFull
+	}
 
 	fp := makeSegPath(l.segsPath, id)
 

@@ -1,6 +1,7 @@
 package neo
 
 import (
+	"errors"
 	"io"
 	"sync/atomic"
 
@@ -71,6 +72,10 @@ func (d *Database) GetID() uint32 {
 	return d.id
 }
 
+var (
+	ErrLv1SegmentsFull = errors.New("lv1 reached 1024 segments")
+)
+
 func (d *Database) Set(key, value []byte) error {
 	d.doTrans()
 
@@ -84,6 +89,7 @@ func (d *Database) Set(key, value []byte) error {
 		}
 	}()
 
+	// TODO if ErrLv1SegmentsFull, set Database Sealed
 	panic("implement me")
 }
 
