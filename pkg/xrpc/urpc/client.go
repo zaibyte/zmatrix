@@ -47,6 +47,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
+
 	"g.tesamc.com/IT/zaipkg/config"
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xbytes"
@@ -200,11 +202,23 @@ func (c *Client) Stop(err error) {
 }
 
 func (c *Client) Set(db uint32, key, value []byte) error {
+
+	if len(value) > config2.MaxValueLen {
+		return xerrors.WithMessage(orpc.ErrBadRequest, "too big value")
+	}
+
 	_, _, err := c.call(db, setMethod, key, value)
 	return err
 }
 
 func (c *Client) SetBatch(db uint32, keys, values [][]byte) error {
+
+	for _, value := range values {
+		if len(value) > config2.MaxValueLen {
+			return xerrors.WithMessage(orpc.ErrBadRequest, "too big value")
+		}
+	}
+
 	kCnt := len(keys)
 	vCnt := len(values)
 	if kCnt != vCnt {
