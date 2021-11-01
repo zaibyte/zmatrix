@@ -30,7 +30,7 @@ That's all! zMatrix is surprisingly simple for beginners!
 ### Best Practice
 
 1. Using only one database unless you want to remove entire database or new one is too big to be placed in the same database (disk space is not enough)
-2. zMatrix is only built for random access, it won't provide list operation for users. It's a good idea to make keys regular. e.g., <prefix_a>_<timestamp>
+2. zMatrix is only built for random access, it won't provide list operation for users. It's a good idea to make keys regular. e.g., <prefix_a>_<timestamp>. 
 3. Sort keys in asc before setting to zMatrix. We could use regular keys and control the setting order to achieve this.
 
 ### Operation Guide

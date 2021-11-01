@@ -2,11 +2,15 @@ package neo
 
 import (
 	"encoding/binary"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/spf13/cast"
 
 	"g.tesamc.com/IT/zaipkg/directio"
 
@@ -55,10 +59,11 @@ type lv1 struct {
 }
 
 const (
-	segBufSize = 512 * 1024
+	segBufSize        = 512 * 1024      // write buffer
+	segIdxLoadBufSize = 8 * 1024 * 1024 // For 4 millions segment (the biggest segment), the index may take 4.5 MiB space.
 
-	version1           = uint32(1) // In present, we only has one version.
-	chunkIdxHeaderSize = 4 * 1024
+	version1         = uint32(1) // In present, we only has one version.
+	segIdxHeaderSize = 4 * 1024
 )
 
 func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) {
@@ -83,19 +88,123 @@ func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error
 	return
 }
 
+// After createLv1, load lv1 from disk.
+// dbPath must have been checked.
+func (l *lv1) load() (err error) {
+
+	fs := l.fs
+	segDir := l.segsPath
+	// 1. list all file
+	// 2. get seg & idx pairs
+	// 3. remove all non-pair seg/idx files
+	// 4. add seg & idx to lv1
+	ns, err := fs.List(segDir)
+	if err != nil {
+		return err
+	}
+
+	segs := make(map[string]struct{})
+	idxs := make(map[string]struct{})
+
+	waitRemoved := make([]string, 0, len(ns))
+
+	for _, n := range ns {
+
+		shouldRm := true
+		if strings.HasSuffix(n, segSuffix) {
+
+			ids := strings.TrimSuffix(n, segSuffix)
+			_, err := cast.ToInt64E(ids)
+			if err == nil {
+				shouldRm = false
+				segs[ids] = struct{}{}
+			}
+
+		} else if strings.HasSuffix(n, segIdxSuffix) {
+			ids := strings.TrimSuffix(n, segIdxSuffix)
+			_, err := cast.ToInt64E(ids)
+			if err == nil {
+				shouldRm = false
+				idxs[ids] = struct{}{}
+			}
+		}
+
+		if shouldRm {
+			waitRemoved = append(waitRemoved, n)
+		}
+		shouldRm = true
+	}
+
+	for k := range segs {
+		if _, ok := idxs[k]; !ok {
+			waitRemoved = append(waitRemoved, k+segSuffix)
+		}
+	}
+	for k := range idxs {
+		if _, ok := segs[k]; !ok {
+			waitRemoved = append(waitRemoved, k+segIdxSuffix)
+		}
+	}
+
+	for _, rm := range waitRemoved {
+		_ = fs.Remove(filepath.Join(segDir, rm))
+	}
+
+	idxBuf := directio.AlignedBlock(segIdxLoadBufSize)
+	for ids := range segs {
+		err = l.loadSeg(ids, idxBuf)
+		if err != nil {
+			err = xerrors.WithMessage(err, fmt.Sprintf("failed to load seg: %s", ids))
+			return err
+		}
+	}
+	return nil
+}
+
+func (l *lv1) loadSeg(ids string, buf []byte) error {
+
+	id := cast.ToInt64(ids)
+
+	segFn := filepath.Join(l.segsPath, ids+segSuffix)
+	idxFn := filepath.Join(l.segsPath, ids+segIdxSuffix)
+
+	segF, err := l.fs.Open(segFn)
+	if err != nil {
+		return err
+	}
+	l.addSeg(id, segF)
+
+	idx, min, max, err := loadSegIdxFromFile(l.fs, idxFn, buf)
+	if err != nil {
+		return err
+	}
+
+	l.addSegIdx(id, idx, min, max)
+	return nil
+}
+
+// TODO search
+
 // createLv1Paths create paths needed by lv1, and return segments paths.
 func createLv1Paths(dbPath string, fs vfs.FS) (string, error) {
 	dir := makeL1Dir(dbPath)
 	err := fs.MkdirAll(dir, 0755)
+	if vfs.IsExist(err) {
+		err = nil
+	}
 	if err != nil {
 		return "", err
 	}
 
 	sp := makeL1SegDir(dir)
 	err = fs.MkdirAll(sp, 0755)
+	if vfs.IsExist(err) {
+		err = nil
+	}
 	if err != nil {
 		return "", err
 	}
+
 	return sp, nil
 }
 
@@ -244,15 +353,35 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 		return
 	}
 
-	atomic.StorePointer(&l.segs[id], unsafe.Pointer(segF.(*vfs.DirectFile)))
+	l.addSeg(id, segF)
 
 	return id, idx, items[0].Key, items[len(items)-1].Key, nil
+}
+
+func (l *lv1) addSeg(id int64, segF vfs.File) {
+	atomic.StorePointer(&l.segs[id], unsafe.Pointer(segF.(*vfs.DirectFile)))
+}
+
+func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex, min, max []byte) {
+	atomic.StorePointer(&l.indexes[id], unsafe.Pointer(idx))
+
+	var st *bsegtree.BSTree
+	ost := atomic.LoadPointer(&l.ranges)
+	if ost == nil {
+		st = bsegtree.New().(*bsegtree.BSTree)
+	} else {
+		st = (*bsegtree.BSTree)(ost).Clone().(*bsegtree.BSTree)
+	}
+	st.Push(min, max)
+	st.Build()
+
+	atomic.StorePointer(&l.ranges, unsafe.Pointer(st))
 }
 
 // addSeg adds its index to lv1.
 // index on local:
 // 4KB header + index_bytes
-func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex, min, max []byte) error {
+func (l *lv1) persistIdx(id int64, idx *index.SlimIndex, min, max []byte) error {
 
 	idxFp := makeSegIdxPath(l.segsPath, id)
 
@@ -271,7 +400,7 @@ func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex, min, max []byte) error {
 	defer xbytes.PutBytes(buf)
 
 	makeSegIdxHeader(version1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), min, max, buf)
-	undone := copy(buf[chunkIdxHeaderSize:], idxBytes)
+	undone := copy(buf[segIdxHeaderSize:], idxBytes)
 	done, off := 0, int64(0)
 	for done < len(idxBytes) {
 
@@ -286,19 +415,7 @@ func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex, min, max []byte) error {
 		off += segBufSize
 	}
 
-	atomic.StorePointer(&l.indexes[id], unsafe.Pointer(idx))
-
-	var st *bsegtree.BSTree
-	ost := atomic.LoadPointer(&l.ranges)
-	if ost == nil {
-		st = bsegtree.New().(*bsegtree.BSTree)
-	} else {
-		st = (*bsegtree.BSTree)(ost).Clone().(*bsegtree.BSTree)
-	}
-	st.Push(min, max)
-	st.Build()
-
-	atomic.StorePointer(&l.ranges, unsafe.Pointer(st))
+	l.addSegIdx(id, idx, min, max)
 
 	return nil
 }
@@ -343,24 +460,71 @@ func makeSegIdxHeader(version uint32, checksum uint64, idxSize uint64, min, max,
 	nextOff += 4
 	copy(buf[nextOff:], max)
 
-	binary.LittleEndian.PutUint32(buf[chunkIdxHeaderSize-4:], 0)
+	binary.LittleEndian.PutUint32(buf[segIdxHeaderSize-4:], 0)
 
 	headerChecksum := xdigest.Sum32(buf)
-	binary.LittleEndian.PutUint32(buf[chunkIdxHeaderSize-4:], headerChecksum)
+	binary.LittleEndian.PutUint32(buf[segIdxHeaderSize-4:], headerChecksum)
 }
 
-func parseSegIdxHeader(buf []byte) (version uint32, checksum uint64, idxSize uint64, err error) {
+func parseSegIdxHeader(buf []byte) (version uint32, checksum uint64, idxSize uint64, min, max []byte, err error) {
 
-	c := binary.LittleEndian.Uint32(buf[chunkIdxHeaderSize-4:])
+	c := binary.LittleEndian.Uint32(buf[segIdxHeaderSize-4:])
 
-	binary.LittleEndian.PutUint32(buf[chunkIdxHeaderSize-4:], 0)
+	binary.LittleEndian.PutUint32(buf[segIdxHeaderSize-4:], 0)
 	headerChecksum := xdigest.Sum32(buf)
 	if c != headerChecksum {
-		return 0, 0, 0, xerrors.WithMessage(orpc.ErrChecksumMismatch, "failed to parse chunk index header")
+		err = xerrors.WithMessage(orpc.ErrChecksumMismatch, "failed to parse chunk index header")
+		return
 	}
 
 	version = binary.LittleEndian.Uint32(buf[:4])
 	checksum = binary.LittleEndian.Uint64(buf[4:12])
-	idxSize = binary.LittleEndian.Uint64(buf[12:18])
+	idxSize = binary.LittleEndian.Uint64(buf[12:20])
+
+	minSize := binary.LittleEndian.Uint32(buf[20:24])
+	min = make([]byte, minSize)
+	copy(min, buf[24:])
+
+	maxSize := binary.LittleEndian.Uint32(buf[24+minSize:])
+	max = make([]byte, maxSize)
+	copy(max, buf[28+minSize:])
+
+	return
+}
+
+func loadSegIdxFromFile(fs vfs.FS, fp string, buf []byte) (idx *index.SlimIndex, min, max []byte, err error) {
+
+	f, err := fs.Open(fp)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	size := fi.Size()
+	if size > int64(len(buf)) {
+		buf = directio.AlignedBlock(int(size))
+	} else {
+		buf = buf[:size]
+	}
+
+	_, err = f.ReadAt(buf, 0)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	var idxSize uint64
+	_, _, idxSize, min, max, err = parseSegIdxHeader(buf[:segIdxHeaderSize])
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	err = idx.Unmarshal(buf[segIdxHeaderSize : segIdxHeaderSize+idxSize])
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	return
 }
