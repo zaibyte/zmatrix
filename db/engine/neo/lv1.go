@@ -200,7 +200,7 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 
 	for _, id := range ids {
 		segF, idx, ok := l.getSeg(id)
-		if ok {
+		if ok { // Ensure there is no memory order issues.
 			o, found := idx.SlimTrie.RangeGet(xstrconv.ToString(key))
 			if !found {
 				continue
@@ -475,6 +475,8 @@ func (l *lv1) addSeg(id int64, segF vfs.File) {
 func (l *lv1) addSegIdxRange(id int64, idx *index.SlimIndex, min, max []byte) {
 
 	l.addSegIdx(id, idx)
+	// addRange must be the last operation of add seg, add segIdx, addRange.
+	// Otherwise, we may search the right seg but without seg file & seg index result. (on X86, Stores are not reordered with other stores)
 	l.addRange(min, max)
 }
 
@@ -650,4 +652,14 @@ func loadSegIdxFromFile(fs vfs.FS, fp string, buf []byte) (idx *index.SlimIndex,
 		return nil, nil, nil, err
 	}
 	return
+}
+
+func (l *lv1) close() {
+
+	for i := range l.segs {
+		segF, _, ok := l.getSeg(i)
+		if ok {
+			_ = segF.Close()
+		}
+	}
 }
