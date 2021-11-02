@@ -556,10 +556,10 @@ func cleanDirtySeg(fs vfs.FS, segsPath string, id int64) {
 	_ = fs.Remove(sip)
 }
 
-func makeSegIdxHeader(version uint32, checksum uint64, idxSize uint64, min, max, buf []byte) {
+func makeSegIdxHeader(version uint32, idxChecksum uint64, idxSize uint64, min, max, buf []byte) {
 
 	binary.LittleEndian.PutUint32(buf, version)
-	binary.LittleEndian.PutUint64(buf[4:], checksum)
+	binary.LittleEndian.PutUint64(buf[4:], idxChecksum)
 	binary.LittleEndian.PutUint64(buf[12:], idxSize)
 	binary.LittleEndian.PutUint32(buf[20:], uint32(len(min))) // longest key size is 255 bytes.
 	copy(buf[24:], min)
@@ -570,7 +570,7 @@ func makeSegIdxHeader(version uint32, checksum uint64, idxSize uint64, min, max,
 
 	binary.LittleEndian.PutUint32(buf[segIdxHeaderSize-4:], 0)
 
-	headerChecksum := xdigest.Sum32(buf)
+	headerChecksum := xdigest.Sum32(buf[:segIdxHeaderSize])
 	binary.LittleEndian.PutUint32(buf[segIdxHeaderSize-4:], headerChecksum)
 }
 
@@ -579,7 +579,7 @@ func parseSegIdxHeader(buf []byte) (version uint32, checksum uint64, idxSize uin
 	c := binary.LittleEndian.Uint32(buf[segIdxHeaderSize-4:])
 
 	binary.LittleEndian.PutUint32(buf[segIdxHeaderSize-4:], 0)
-	headerChecksum := xdigest.Sum32(buf)
+	headerChecksum := xdigest.Sum32(buf[:segIdxHeaderSize])
 	if c != headerChecksum {
 		err = xerrors.WithMessage(orpc.ErrChecksumMismatch, "failed to parse chunk index header")
 		return
