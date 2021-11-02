@@ -66,8 +66,8 @@ const (
 	segIdxLoadBufSize = 8 * 1024 * 1024
 
 	// It's segment index version.
-	// version1 means using slim trie as index.
-	version1         = uint32(1) // In present, we only has one version.
+	// segIdxVersion1 means using slim trie as index.
+	segIdxVersion1   = uint32(1) // In present, we only has one version.
 	segIdxHeaderSize = 4 * 1024
 )
 
@@ -507,7 +507,7 @@ func (l *lv1) persistIdx(id int64, idx *index.SlimIndex, min, max []byte) error 
 	buf := xbytes.GetAlignedBytes(segBufSize)
 	defer xbytes.PutBytes(buf)
 
-	makeSegIdxHeader(version1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), min, max, buf)
+	makeSegIdxHeader(segIdxVersion1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), min, max, buf)
 	undone := copy(buf[segIdxHeaderSize:], idxBytes)
 	done, off := 0, int64(0)
 	for done < len(idxBytes) {
