@@ -60,6 +60,7 @@ type lv1 struct {
 }
 
 const (
+	maxSegs    = 1024
 	segBufSize = 512 * 1024 // write buffer
 	// For 4 millions segment (the biggest segment), the index may take 4.5 MiB space.
 	// 8 MB buf is enough for loading.
@@ -185,7 +186,7 @@ func (l *lv1) loadSeg(ids string, buf []byte) error {
 		return err
 	}
 
-	l.addSegIdx(id, idx, min, max)
+	l.addSegIdxRange(id, idx, min, max)
 	return nil
 }
 
@@ -470,9 +471,18 @@ func (l *lv1) addSeg(id int64, segF vfs.File) {
 	atomic.StorePointer(&l.segs[id], unsafe.Pointer(segF.(*vfs.DirectFile)))
 }
 
-func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex, min, max []byte) {
-	atomic.StorePointer(&l.indexes[id], unsafe.Pointer(idx))
+// addSegIdxRange adds new index & range to lv1.
+func (l *lv1) addSegIdxRange(id int64, idx *index.SlimIndex, min, max []byte) {
 
+	l.addSegIdx(id, idx)
+	l.addRange(min, max)
+}
+
+func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex) {
+	atomic.StorePointer(&l.indexes[id], unsafe.Pointer(idx))
+}
+
+func (l *lv1) addRange(min, max []byte) {
 	var st *bsegtree.BSTree
 	ost := atomic.LoadPointer(&l.ranges)
 	if ost == nil {
@@ -523,7 +533,7 @@ func (l *lv1) persistIdx(id int64, idx *index.SlimIndex, min, max []byte) error 
 		off += segBufSize
 	}
 
-	l.addSegIdx(id, idx, min, max)
+	l.addSegIdxRange(id, idx, min, max)
 
 	return nil
 }
