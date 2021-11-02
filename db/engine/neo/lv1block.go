@@ -76,10 +76,11 @@ func getNFromBlock(block []byte, cnt int, h uint64) (ns []int, ok bool) {
 
 	ns = intsPool.Get().([]int)[:0]
 
-	for i := 0; i < cnt*8; i += 8 {
-		if h == binary.LittleEndian.Uint64(block[off+i:off+i+8]) {
+	for i := 0; i < lv1BlockMaxItems; i++ {
+		if h == binary.LittleEndian.Uint64(block[off:]) {
 			ns = append(ns, i)
 		}
+		off += 8
 	}
 
 	if len(ns) == 0 {

@@ -61,11 +61,11 @@ func Create(path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 // createPaths creates paths needed by Neo Database under dir.
 // Return nil if all paths created.
 func createPaths(dir string, id uint32) error {
-
+	return nil
 }
 
 func Load(path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
-
+	return nil, nil
 }
 
 func (d *Database) GetID() uint32 {

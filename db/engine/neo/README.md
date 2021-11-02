@@ -36,7 +36,7 @@ offset is key_value's offset from the first byte in this block.
 
 size is value size.
 
-All above is header of block, and all of them are in little endian.
+All above is header of block, and all of them are in little endian and will take 114 Bytes.
 
 For keys_values:
 

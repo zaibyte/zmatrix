@@ -1,7 +1,13 @@
 package zmerrors
 
-import "errors"
+import (
+	"errors"
+
+	"g.tesamc.com/IT/zaipkg/orpc"
+	"g.tesamc.com/IT/zaipkg/xerrors"
+)
 
 var (
 	ErrTooManyDatabase = errors.New("too many database")
+	ErrTooFastSet      = xerrors.WithMessage(orpc.ErrTooManyRequests, "set too fast, pls wait for a while")
 )
