@@ -8,7 +8,7 @@ Neo is the first generation database engine for zMatrix, it contains two levels 
 
 ## Level0: Write Buffer Level
 
-PebbleDB is the core of write buffer.
+All things of lv0 are based on PebbleDB. It's a reliable KV database, and which I've done was just a simple wrap, that's why there is no testing about it :D.
 
 ## Level1: Read Only Level
 
