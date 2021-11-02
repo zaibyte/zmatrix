@@ -70,6 +70,7 @@ func TestMakeSegIdxHeader(t *testing.T) {
 	}
 }
 
+// This testing is built for ensuring thread-safe and could return the right segment.
 func TestLv1AddSearchSegRange(t *testing.T) {
 
 	fs := testFS
@@ -105,6 +106,7 @@ func TestLv1AddSearchSegRange(t *testing.T) {
 		}
 	}()
 
+	// Search is faster than add, and it has more goroutines, which means searching needs waiting sometimes.
 	wg2 := new(sync.WaitGroup)
 	wg2.Add(4)
 
