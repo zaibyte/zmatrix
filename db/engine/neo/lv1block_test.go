@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TODO
-
 func TestMakeLv1MinBlock(t *testing.T) {
 
 	buf := make([]byte, lv1BlockAlignSize)

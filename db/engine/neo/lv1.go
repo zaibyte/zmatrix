@@ -60,13 +60,18 @@ type lv1 struct {
 }
 
 const (
-	segBufSize        = 512 * 1024      // write buffer
-	segIdxLoadBufSize = 8 * 1024 * 1024 // For 4 millions segment (the biggest segment), the index may take 4.5 MiB space.
+	segBufSize = 512 * 1024 // write buffer
+	// For 4 millions segment (the biggest segment), the index may take 4.5 MiB space.
+	// 8 MB buf is enough for loading.
+	segIdxLoadBufSize = 8 * 1024 * 1024
 
+	// It's segment index version.
+	// version1 means using slim trie as index.
 	version1         = uint32(1) // In present, we only has one version.
 	segIdxHeaderSize = 4 * 1024
 )
 
+// createLV1 creates new lv1 with empty segment.
 func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) {
 
 	sp, err := createLv1Paths(dbPath, fs)
@@ -234,7 +239,7 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 	end := start + int(size)
 
 	if end <= lv1BlockAlignSize { // It's in this block.
-		return true, buf[start:end], xbytes.PoolAlignedBytesCloser{buf}, nil
+		return true, buf[start:end], xbytes.PoolAlignedBytesCloser{P: buf}, nil
 	}
 
 	xbytes.PutAlignedBytes(buf)
@@ -248,7 +253,7 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 		return false, nil, nil, err
 	}
 
-	return true, bigB[start:end], xbytes.PoolAlignedBytesCloser{bigB}, nil
+	return true, bigB[start:end], xbytes.PoolAlignedBytesCloser{P: bigB}, nil
 }
 
 // getSeg gets segment file & its index from memory.
@@ -619,10 +624,15 @@ func loadSegIdxFromFile(fs vfs.FS, fp string, buf []byte) (idx *index.SlimIndex,
 		return nil, nil, nil, err
 	}
 
-	var idxSize uint64
-	_, _, idxSize, min, max, err = parseSegIdxHeader(buf[:segIdxHeaderSize])
+	var checksum, idxSize uint64
+	_, checksum, idxSize, min, max, err = parseSegIdxHeader(buf[:segIdxHeaderSize])
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	if checksum != xxhash.Sum64(buf[segIdxHeaderSize:segIdxHeaderSize+idxSize]) {
+		err = xerrors.WithMessage(orpc.ErrChecksumMismatch, fmt.Sprintf("failed load seg: %s idx", fp))
+		return
 	}
 
 	err = idx.Unmarshal(buf[segIdxHeaderSize : segIdxHeaderSize+idxSize])
