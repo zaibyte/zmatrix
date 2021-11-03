@@ -2,6 +2,7 @@ package neo
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -102,21 +103,48 @@ func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error
 // dbPath must have been checked.
 func (l *lv1) load() (err error) {
 
-	fs := l.fs
-	segDir := l.segsPath
 	// 1. list all file
 	// 2. get seg & idx pairs
 	// 3. remove all non-pair seg/idx files
 	// 4. add seg & idx to lv1
+	fs := l.fs
+	segDir := l.segsPath
 	ns, err := fs.List(segDir)
 	if err != nil {
 		return err
 	}
 
-	segs := make(map[string]struct{})
-	idxs := make(map[string]struct{})
+	segs, waitRemoved := l.findSegPairs(ns)
 
-	waitRemoved := make([]string, 0, len(ns))
+	idxBuf := directio.AlignedBlock(segIdxLoadBufSize)
+	for ids := range segs {
+		err = l.loadSeg(ids, idxBuf)
+		if err != nil {
+			if errors.Is(err, orpc.ErrChecksumMismatch) { // Regard as short-write caused by interruption.
+				waitRemoved = append(waitRemoved, ids+segSuffix)
+				waitRemoved = append(waitRemoved, ids+segIdxSuffix)
+				err = nil
+			}
+		}
+		if err != nil { // Non checksum error.
+			err = xerrors.WithMessage(err, fmt.Sprintf("failed to load seg: %s", ids))
+			return err
+		}
+	}
+
+	for _, rm := range waitRemoved {
+		_ = fs.Remove(filepath.Join(segDir, rm))
+	}
+
+	return nil
+}
+
+// findSegPairs find out seg & index file pairs by checking filenames.
+func (l *lv1) findSegPairs(ns []string) (valid map[string]struct{}, invalid []string) {
+
+	valid = make(map[string]struct{})
+	idxs := make(map[string]struct{})
+	invalid = make([]string, 0, len(ns))
 
 	for _, n := range ns {
 
@@ -127,9 +155,8 @@ func (l *lv1) load() (err error) {
 			_, err := cast.ToInt64E(ids)
 			if err == nil {
 				shouldRm = false
-				segs[ids] = struct{}{}
+				valid[ids] = struct{}{}
 			}
-
 		} else if strings.HasSuffix(n, segIdxSuffix) {
 			ids := strings.TrimSuffix(n, segIdxSuffix)
 			_, err := cast.ToInt64E(ids)
@@ -140,35 +167,41 @@ func (l *lv1) load() (err error) {
 		}
 
 		if shouldRm {
-			waitRemoved = append(waitRemoved, n)
+			invalid = append(invalid, n)
 		}
 		shouldRm = true
 	}
 
-	for k := range segs {
-		if _, ok := idxs[k]; !ok {
-			waitRemoved = append(waitRemoved, k+segSuffix)
-		}
-	}
+	noSeg := make([]string, 0, len(idxs))
 	for k := range idxs {
-		if _, ok := segs[k]; !ok {
-			waitRemoved = append(waitRemoved, k+segIdxSuffix)
+		if _, ok := valid[k]; !ok { // has index file but no seg
+			invalid = append(invalid, k+segIdxSuffix)
+			noSeg = append(noSeg, k)
 		}
 	}
-
-	for _, rm := range waitRemoved {
-		_ = fs.Remove(filepath.Join(segDir, rm))
+	for _, ids := range noSeg {
+		delete(idxs, ids)
 	}
 
-	idxBuf := directio.AlignedBlock(segIdxLoadBufSize)
-	for ids := range segs {
-		err = l.loadSeg(ids, idxBuf)
-		if err != nil {
-			err = xerrors.WithMessage(err, fmt.Sprintf("failed to load seg: %s", ids))
-			return err
+	noIdx := make([]string, 0, len(valid))
+	for k := range valid {
+		if _, ok := idxs[k]; !ok { // has seg file but no index
+			invalid = append(invalid, k+segSuffix)
+			noIdx = append(noIdx, k)
 		}
 	}
-	return nil
+	for _, ids := range noIdx {
+		delete(valid, ids)
+	}
+
+	if len(valid) == 0 {
+		valid = nil
+	}
+	if len(invalid) == 0 {
+		invalid = nil
+	}
+
+	return
 }
 
 func (l *lv1) loadSeg(ids string, buf []byte) error {

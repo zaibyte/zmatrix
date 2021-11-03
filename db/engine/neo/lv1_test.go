@@ -306,3 +306,48 @@ func TestLv1MakeSearchSeg(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestFindSegPairs(t *testing.T) {
+
+	l := &lv1{}
+
+	testCases := []struct {
+		ns         []string
+		expValid   map[string]struct{}
+		expInValid []string
+	}{
+		{
+			[]string{},
+			nil,
+			nil,
+		},
+		{
+			[]string{"1.seg", "1.idx"},
+			map[string]struct{}{"1": struct{}{}},
+			nil,
+		},
+		{
+			[]string{"1.seg", "1.idx", "2.idx"},
+			map[string]struct{}{"1": struct{}{}},
+			[]string{"2.idx"},
+		},
+		{
+			[]string{"1.seg", "1.idx", "2.seg"},
+			map[string]struct{}{"1": struct{}{}},
+			[]string{"2.seg"},
+		},
+		{
+			[]string{"1.seg", "1.idx", "2.idx", "2", "3"},
+			map[string]struct{}{"1": struct{}{}},
+			[]string{"2.idx", "2", "3"},
+		},
+	}
+
+	for _, tc := range testCases {
+		sort.Strings(tc.expInValid)
+		valid, invalid := l.findSegPairs(tc.ns)
+		sort.Strings(invalid)
+		assert.Equal(t, tc.expValid, valid)
+		assert.Equal(t, tc.expInValid, invalid)
+	}
+}
