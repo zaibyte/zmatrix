@@ -276,4 +276,33 @@ func TestLv1MakeSearchSeg(t *testing.T) {
 			_ = closer.Close()
 		}
 	}
+
+	wg := new(sync.WaitGroup)
+	wg.Add(4)
+
+	for i := 0; i < 4; i++ {
+		go func() {
+			defer wg.Done()
+			iter := snap.NewIter(nil)
+			defer iter.Close()
+
+			for iter.First(); iter.Valid(); iter.Next() {
+				k := iter.Key()
+
+				v, closer, err := l.search(k)
+				if err != nil {
+					t.Errorf("failed to search: %s", err.Error())
+					return
+				}
+				if err == nil {
+					if !bytes.Equal(v, iter.Value()) {
+						t.Error("value mismatched")
+						return
+					}
+					_ = closer.Close()
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
