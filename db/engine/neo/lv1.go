@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"g.tesamc.com/IT/zmatrix/pkg/config"
+
 	"github.com/spf13/cast"
 
 	"g.tesamc.com/IT/zaipkg/directio"
@@ -85,7 +87,8 @@ func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error
 
 	l = &lv1{
 		nextSegID: 0,
-		indexes:   make([]unsafe.Pointer, 1024, 1024),
+		segs:      make([]unsafe.Pointer, maxSegs, maxSegs),
+		indexes:   make([]unsafe.Pointer, maxSegs, maxSegs),
 		segsPath:  sp,
 		sched:     sched,
 		fs:        fs,
@@ -245,16 +248,30 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 
 	xbytes.PutAlignedBytes(buf)
 
-	// sorry for allocating again :D
-	bigB := xbytes.GetAlignedBytes(int(xbytes.AlignSize(lv1BlockAlignSize+int64(size), 4096)))
+	left := int(size) - (lv1BlockAlignSize - start)
+	wanted := xbytes.AlignSize(lv1BlockAlignSize+int64(left), 4096)
+	var bigB []byte
+	var closer io.Closer
+	bigBInPool := false
+	if wanted > config.MaxValueLen { // Too big no pool.
+		bigB = directio.AlignedBlock(int(wanted))
+		closer = io.NopCloser(nil)
+	} else {
+		bigB = xbytes.GetAlignedBytes(int(wanted))
+		closer = xbytes.PoolAlignedBytesCloser{P: bigB}
+		bigBInPool = true
+	}
 
 	_, err = f.ReadAt(bigB, offset)
 	if err != nil {
-		xbytes.PutAlignedBytes(bigB)
+		if bigBInPool {
+			xbytes.PutAlignedBytes(bigB)
+		}
+
 		return false, nil, nil, err
 	}
 
-	return true, bigB[start:end], xbytes.PoolAlignedBytesCloser{P: bigB}, nil
+	return true, bigB[start:end], closer, nil
 }
 
 // getSeg gets segment file & its index from memory.
@@ -388,7 +405,6 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := iter.Key()
-
 		items = append(items, index.OffsetIndexItem{Key: string(k)})
 	}
 	err = iter.Close()
@@ -398,7 +414,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 
 	sort.Sort(idxItems(items)) // Sort by key in asc order.
 
-	buf := directio.AlignedBlock(4*1024*1024 + 2*lv1BlockMinSize) // Max space wil be taken by one item.
+	buf := directio.AlignedBlock(4*1024*1024 + 2*lv1BlockMinSize) // Max space will be taken by one item.
 
 	itemOff := lv1BlockHeaderSize // This item offset from first byte of a block.
 	offset := int64(0)            // offset from segment file.
@@ -422,8 +438,8 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 				return
 			}
 
-			for _, idx := range itemsIdxInBlock {
-				items[idx].Offset = offset
+			for _, iii := range itemsIdxInBlock {
+				items[iii].Offset = offset
 			}
 
 			itemOff = lv1BlockHeaderSize
@@ -455,6 +471,21 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 		itemsIdxInBlock = append(itemsIdxInBlock, i)
 
 		_ = closer.Close()
+	}
+
+	if itemsInBlock != 0 { // if there is un-flushed in buf
+		wa := xbytes.AlignSize(int64(itemOff), lv1BlockAlignSize) // min block is lv1BlockAlignSize.
+		makeLv1MinBlock(buf, itemsInBlock, hs, offs, sizes)
+
+		err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:wa])
+		if err != nil {
+			return
+		}
+
+		for _, iii := range itemsIdxInBlock {
+			items[iii].Offset = offset
+		}
+
 	}
 
 	idx, err = index.NewSlimIndex(items, nil)

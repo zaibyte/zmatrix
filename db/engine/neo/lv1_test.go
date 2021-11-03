@@ -1,8 +1,11 @@
 package neo
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,9 +14,12 @@ import (
 	"time"
 
 	"g.tesamc.com/IT/zaipkg/xio"
-
+	"g.tesamc.com/IT/zaipkg/xlog"
+	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
 	"g.tesamc.com/IT/zaipkg/xmath/xrand"
+	"g.tesamc.com/IT/zmatrix/pkg/config"
 
+	"github.com/cockroachdb/pebble"
 	"github.com/openacid/slim/index"
 	"github.com/stretchr/testify/assert"
 )
@@ -87,6 +93,7 @@ func TestLv1AddSearchSegRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer l.close()
 
 	cnt := maxSegs
 
@@ -143,4 +150,130 @@ func TestLv1AddSearchSegRange(t *testing.T) {
 	}
 
 	wg2.Wait()
+}
+
+// Make just one segment, and searching it.
+// It's enough because we've done multi segment searching in TestLv1AddSearchSegRange.
+func TestLv1MakeSearchSeg(t *testing.T) {
+	fs := testFS
+
+	dbPath := filepath.Join(os.TempDir(), "neo.lv1", fmt.Sprintf("%d", xrand.Uint32()))
+
+	err := fs.MkdirAll(dbPath, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.RemoveAll(dbPath)
+
+	l, err := createLv1(dbPath, fs, &xio.NopScheduler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.close()
+
+	dir, err := ioutil.TempDir(os.TempDir(), "pebble")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	l0, err := pebble.Open(dir, &pebble.Options{
+		Logger: xlog.GetGRPCLoggerV2(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l0.Close()
+
+	cnt := 128
+	kLen := 8 // fixed key length helping to accelerate testing, and the lengths of values are enough random.
+	keyBuf := make([]byte, kLen)
+	valBuf := make([]byte, config.MaxValueLen)
+
+	rand.Seed(time.Now().UnixNano())
+	rand.Read(valBuf) // We don't need too many value.
+
+	minSize := int64(0)
+
+	for i := 0; i < cnt-5; i++ {
+
+		binary.BigEndian.PutUint64(keyBuf, uint64(1024-i))
+
+		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
+		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
+
+		err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+		if err != nil {
+			t.Fatal(err)
+		}
+		minSize += int64(vLen)
+	}
+
+	// Ensure there are < KB, == KB, > lv1BlockAlignSize, B, 4MB value.
+	vLen := lv1BlockAlignSize + 1025
+	binary.BigEndian.PutUint64(keyBuf, uint64(5))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 1022
+	binary.BigEndian.PutUint64(keyBuf, uint64(4))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 1024
+	binary.BigEndian.PutUint64(keyBuf, uint64(3))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 1
+	binary.BigEndian.PutUint64(keyBuf, uint64(2))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 4 * 1024 * 1024
+	binary.BigEndian.PutUint64(keyBuf, uint64(1))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+
+	snap := l0.NewSnapshot()
+
+	id, idx, min, max, err := l.makeSegIdx(snap, 1024, minSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, int64(0), id)
+	err = l.persistIdx(id, idx, []byte(min), []byte(max))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.addSegIdxRange(id, idx, []byte(min), []byte(max))
+
+	iter := snap.NewIter(nil)
+	defer iter.Close()
+
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := iter.Key()
+
+		v, closer, err := l.search(k)
+		if err != nil {
+			t.Fatalf("failed to search: %s", err.Error())
+		}
+		if err == nil {
+			if !bytes.Equal(v, iter.Value()) {
+				t.Fatal("value mismatched")
+			}
+			_ = closer.Close()
+		}
+	}
 }
