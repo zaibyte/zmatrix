@@ -711,6 +711,8 @@ func loadSegIdxFromFile(fs vfs.FS, fp string, buf []byte) (idx *index.SlimIndex,
 		return
 	}
 
+	idx = new(index.SlimIndex)
+
 	err = idx.Unmarshal(buf[segIdxHeaderSize : segIdxHeaderSize+idxSize])
 	if err != nil {
 		return nil, nil, nil, err

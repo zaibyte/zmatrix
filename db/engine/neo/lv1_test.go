@@ -3,6 +3,7 @@ package neo
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"g.tesamc.com/IT/zaipkg/orpc"
 
 	"g.tesamc.com/IT/zaipkg/xio"
 	"g.tesamc.com/IT/zaipkg/xlog"
@@ -74,6 +77,18 @@ func TestMakeSegIdxHeader(t *testing.T) {
 		assert.Equal(t, idxSize, idxSizeAct)
 		assert.Equal(t, segIdxVersion1, version)
 	}
+
+	minN := xrand.Uint64()
+	binary.BigEndian.PutUint64(min, minN)
+	binary.BigEndian.PutUint64(max, minN+1024)
+	checksum := xrand.Uint64()
+	idxSize := xrand.Uint64()
+	makeSegIdxHeader(segIdxVersion1, checksum, idxSize, min, max, buf)
+
+	buf[0] += 1
+
+	_, _, _, _, _, err := parseSegIdxHeader(buf)
+	assert.True(t, errors.Is(err, orpc.ErrChecksumMismatch))
 }
 
 // This testing is built for ensuring thread-safe and could return the right segment.
@@ -350,4 +365,68 @@ func TestFindSegPairs(t *testing.T) {
 		assert.Equal(t, tc.expValid, valid)
 		assert.Equal(t, tc.expInValid, invalid)
 	}
+}
+
+func TestLv1PersistIdx(t *testing.T) {
+
+	fs := testFS
+
+	dbPath := filepath.Join(os.TempDir(), "neo.lv1", fmt.Sprintf("%d", xrand.Uint32()))
+
+	err := fs.MkdirAll(dbPath, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.RemoveAll(dbPath)
+
+	l, err := createLv1(dbPath, fs, &xio.NopScheduler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.close()
+
+	cnt := 1024
+	items := make([]index.OffsetIndexItem, cnt)
+	keyBuf := make([]byte, 8)
+	for i := range items {
+
+		binary.BigEndian.PutUint64(keyBuf, uint64(i))
+
+		items[i] = index.OffsetIndexItem{
+			Key:    string(keyBuf),
+			Offset: 0,
+		}
+	}
+	idx, err := index.NewSlimIndex(items, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	min, max := make([]byte, 8), make([]byte, 8)
+	binary.BigEndian.PutUint64(min, 0)
+	binary.BigEndian.PutUint64(max, 1023)
+	err = l.persistIdx(0, idx, min, max)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf := make([]byte, segIdxLoadBufSize)
+
+	actIdx, actMin, actMax, err := loadSegIdxFromFile(l.fs, filepath.Join(l.segsPath, "0.idx"), buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, min, actMin)
+	assert.Equal(t, max, actMax)
+
+	idxB, err := idx.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actIdxB, err := actIdx.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, idxB, actIdxB)
 }
