@@ -7,6 +7,9 @@ import (
 
 // Trigger for transferring entries to lv1 from lv0.
 // Either of them could trigger transferring.
+//
+// If Database is in transferring and new transfer should be trigged by these conditions,
+// Database will return zmerrors.ErrTooFastSet.
 const (
 	// DefaultToLv1Threshold is 8 GiB.
 	DefaultToLv1Threshold  = 8 * 1024 * 1024 * 1024

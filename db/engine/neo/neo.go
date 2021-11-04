@@ -48,25 +48,69 @@ type Database struct {
 
 	lv0 *lv0
 	lv1 *lv1
+
+	isTran int64 // there is lv0 -> lv1 job unfinished.
 }
 
-func New() *Database {
-	return &Database{
-		isRunning:      0,
-		id:             0,
-		state:          0,
-		lvl0Used:       0,
-		lvl0DirtyCount: 0,
-		fs:             nil,
-		sched:          nil,
-		path:           "",
-		lv0:            nil,
-		lv1:            nil,
+// Create a new neo Database.
+func Create(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+
+	d := &Database{
+		id:    id,
+		state: int32(zmatrixpb.DBState_DB_ReadWrite),
+		fs:    fs,
+		sched: sched,
+		path:  path,
 	}
+
+	var err error
+
+	d.lv0, err = createLv0(path, fs)
+	if err != nil {
+		return nil, err
+	}
+	d.lv1, err = createLv1(path, fs, sched)
+	if err != nil {
+		return nil, err
+	}
+
+	return d, nil
+}
+
+// Load existed neo Database from disk.
+func Load(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+
+	d := &Database{
+		id:    id,
+		state: int32(zmatrixpb.DBState_DB_ReadWrite),
+		fs:    fs,
+		sched: sched,
+		path:  path,
+	}
+
+	var err error
+	d.lv0, err = loadLv0(path, fs)
+	if err != nil {
+		return nil, err
+	}
+	d.lv1, err = createLv1(path, fs, sched)
+	if err != nil {
+		return nil, err
+	}
+	err = d.lv1.load()
+	if err != nil {
+		_ = d.lv0.close()
+		d.lv1.close()
+		return nil, err
+	}
+
+	return d, nil
 }
 
 func (d *Database) Start() error {
-	panic("implement me")
+
+	atomic.StoreInt64(&d.isRunning, 1)
+	return nil
 }
 
 func (d *Database) GetState() zmatrixpb.DBState {
@@ -106,21 +150,6 @@ func (d *Database) Remove() error {
 }
 
 var _ db.DB = new(Database)
-
-// Create neo Database.
-func Create(path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
-	return nil, nil
-}
-
-// createPaths creates paths needed by Neo Database under dir.
-// Return nil if all paths created.
-func createPaths(dir string, id uint32) error {
-	return nil
-}
-
-func Load(path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
-	return nil, nil
-}
 
 func (d *Database) GetID() uint32 {
 	return d.id
@@ -180,6 +209,19 @@ func (d *Database) doTrans() {
 	// 3. delete one by one in lv0
 	// 4. write down lv1 index
 	// 5. update index in lv1
+
+	// _, _, err := d.lv1.makeSegFile()
+	// if err != nil {
+	// 	if errors.Is(err, zmerrors.ErrDatabaseFull) {
+	// 		xlog.Warnf("neo trans exited: %s", err.Error())
+	// 		err = nil
+	// 		d.SetState(zmatrixpb.DBState_DB_Sealed)
+	// 		return
+	// 	}
+	// }
+	// if err != nil {
+	//
+	// }
 }
 
 func (d *Database) Seal() error {
