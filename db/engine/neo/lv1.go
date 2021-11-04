@@ -568,7 +568,7 @@ func (l *lv1) addRange(min, max []byte) {
 
 // addSeg adds its index to lv1.
 // index on local:
-// 4KB header + index_bytes
+// 4 KB header + index_bytes
 func (l *lv1) persistIdx(id int64, idx *index.SlimIndex, min, max []byte) error {
 
 	idxFp := makeSegIdxPath(l.segsPath, id)
