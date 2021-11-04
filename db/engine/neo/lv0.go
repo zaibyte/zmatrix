@@ -4,6 +4,8 @@ import (
 	"io"
 	"path/filepath"
 
+	"g.tesamc.com/IT/zaipkg/orpc"
+
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xlog"
 
@@ -24,9 +26,13 @@ type lv0 struct {
 
 func createLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
 
+	l = new(lv0)
 	l.fs = fs
 	dir := makeL0Dir(dbPath)
 	err = fs.MkdirAll(dir, 0755)
+	if vfs.IsExist(err) {
+		err = nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +47,26 @@ func createLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
 	}
 	l.db = db
 	return
+}
+
+func loadLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
+
+	dir := makeL0Dir(dbPath)
+	if !vfs.IsDirExisted(fs, dir) {
+		return nil, orpc.ErrNotFound
+	}
+	db, err := pebble.Open(dir, &pebble.Options{
+		Logger:       xlog.GetGRPCLoggerV2(),
+		MemTableSize: defaultMemTableSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &lv0{
+		dir: dir,
+		fs:  fs,
+		db:  db,
+	}, nil
 }
 
 func (l *lv0) set(key, value []byte) error {
