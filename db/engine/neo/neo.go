@@ -103,7 +103,9 @@ func Load(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, er
 
 func (d *Database) Start() error {
 
-	atomic.StoreInt64(&d.isRunning, 1)
+	if !atomic.CompareAndSwapInt64(&d.isRunning, 0, 1) {
+		return nil
+	}
 	return nil
 }
 
