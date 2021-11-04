@@ -1,9 +1,13 @@
 package neo
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
+
+	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
 
 	"g.tesamc.com/IT/zaipkg/xlog"
 
@@ -39,8 +43,8 @@ type Database struct {
 	state int32
 	// volatile data, count bytes in lvl0 roughly for triggering flushing job to lvl1.
 	// After flushing, should minus bytes flushed.
-	lvl0Used       uint64
-	lvl0DirtyCount uint64
+	lv0Used     uint64
+	lv0DirtyCnt uint64
 
 	fs    vfs.FS
 	sched xio.Scheduler
@@ -157,19 +161,21 @@ func (d *Database) GetID() uint32 {
 
 func (d *Database) Set(key, value []byte) error {
 
-	if d.isClosed() {
-		return orpc.ErrServiceClosed
+	setOK, needTrans, err := d.setCheck()
+	if err != nil {
+		return err
 	}
 
-	d.doTrans() // Check trans first.
+	if needTrans {
+		go d.doTrans()
+	}
 
-	var err error
 	defer func() {
 		if err == nil {
 
-			atomic.AddUint64(&d.lvl0Used, uint64(len(key)))
-			atomic.AddUint64(&d.lvl0Used, uint64(len(value)))
-			atomic.AddUint64(&d.lvl0DirtyCount, 1)
+			atomic.AddUint64(&d.lv0Used, uint64(len(key)))
+			atomic.AddUint64(&d.lv0Used, uint64(len(value)))
+			atomic.AddUint64(&d.lv0DirtyCnt, 1)
 		}
 	}()
 
@@ -191,47 +197,107 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 			for i := range keys {
 				key := keys[i]
 				value := values[i]
-				atomic.AddUint64(&d.lvl0Used, uint64(len(key)))
-				atomic.AddUint64(&d.lvl0Used, uint64(len(value)))
-				atomic.AddUint64(&d.lvl0DirtyCount, 1)
+				atomic.AddUint64(&d.lv0Used, uint64(len(key)))
+				atomic.AddUint64(&d.lv0Used, uint64(len(value)))
+				atomic.AddUint64(&d.lv0DirtyCnt, 1)
 			}
 		}
 	}()
 	panic("implement me")
 }
 
+// setCheck checks states and transfer before set.
+func (d *Database) setCheck() (setOK, needTran bool, err error) {
+
+	if d.isClosed() {
+		return false, false, orpc.ErrServiceClosed
+	}
+
+	state := d.GetState()
+	if state != zmatrixpb.DBState_DB_ReadWrite {
+		return false, false,
+			xerrors.WithMessage(orpc.ErrInternalServer, fmt.Sprintf("database: %d cannot set caused by state: %s", d.id, state.String()))
+	}
+
+	setOK = true // We could set at most case unless there is undone transfer job.
+
+	undoneTran := d.transUndone()
+
+	if undoneTran {
+		setOK = false
+		return
+	}
+
+	needTran = d.needTrans()
+
+	return
+}
+
 func (d *Database) needTrans() bool {
 
-	if atomic.LoadUint64(&d.lvl0Used) > DefaultToLv1Threshold ||
-		atomic.LoadUint64(&d.lvl0DirtyCount) > DefaultToLv1MaxEntries {
+	if atomic.LoadUint64(&d.lv0Used) > DefaultToLv1Threshold ||
+		atomic.LoadUint64(&d.lv0DirtyCnt) > DefaultToLv1MaxEntries {
 		return true
 	}
 	return false
 }
 
-// 1. check threshold
-// 2. if matched, check if there is job already
-// 3. if no, run tran in new goroutine
-// 4. if yes, do nothing
+// doTrans in background goroutine
 func (d *Database) doTrans() {
+
+	if !atomic.CompareAndSwapInt64(&d.isTran, 0, 1) {
+		return
+	}
+
+	var dirty, used uint64
+	dirty = atomic.LoadUint64(&d.lv0DirtyCnt)
+	used = atomic.LoadUint64(&d.lv0Used)
+	var err error
+	defer func() {
+		if err == nil {
+			atomic.AddUint64(&d.lv0Used, ^(used - 1))
+			atomic.AddUint64(&d.lv0DirtyCnt, ^(dirty - 1))
+			atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
+		} else {
+			if errors.Is(err, zmerrors.ErrDatabaseFull) {
+				d.SetState(zmatrixpb.DBState_DB_Sealed)
+				xlog.Warnf("database(neo): %d is full: %s", err.Error())
+				err = nil
+				atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
+				return
+			} else {
+				d.SetState(zmatrixpb.DBState_DB_Broken)
+				return
+			}
+		}
+	}()
+
 	// 1. write down seg
 	// 2. making lv1 index
 	// 3. delete one by one in lv0
 	// 4. write down lv1 index
 	// 5. update index in lv1
 
-	// _, _, err := d.lv1.makeSegFile()
-	// if err != nil {
-	// 	if errors.Is(err, zmerrors.ErrDatabaseFull) {
-	// 		xlog.Warnf("neo trans exited: %s", err.Error())
-	// 		err = nil
-	// 		d.SetState(zmatrixpb.DBState_DB_Sealed)
-	// 		return
-	// 	}
-	// }
-	// if err != nil {
-	//
-	// }
+	snap := d.lv0.getSnapshot()
+	segID, idx, min, max, err := d.lv1.makeSegIdx(snap, int(dirty), int64(used))
+	if err != nil {
+		return
+	}
+
+	iter := snap.NewIter(nil)
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := iter.Key()
+		d.lv0.delete(k)
+	}
+	err = iter.Close()
+
+	err = d.lv1.persistIdx(segID, idx, []byte(min), []byte(max))
+	if err != nil {
+		return
+	}
+
+	d.lv1.addSegIdxRange(segID, idx, []byte(min), []byte(max))
 }
 
 func (d *Database) Seal() error {
