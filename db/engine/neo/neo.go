@@ -170,6 +170,10 @@ func (d *Database) Set(key, value []byte) error {
 		go d.doTrans()
 	}
 
+	if !setOK { // Must be undone transfer job.
+		return zmerrors.ErrTooFastSet
+	}
+
 	defer func() {
 		if err == nil {
 
@@ -179,8 +183,7 @@ func (d *Database) Set(key, value []byte) error {
 		}
 	}()
 
-	// TODO if ErrLv1SegmentsFull, set Database Sealed
-	panic("implement me")
+	return d.lv0.set(key, value)
 }
 
 func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
