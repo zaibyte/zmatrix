@@ -24,37 +24,21 @@ type lv0 struct {
 	db  *pebble.DB
 }
 
-func createLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
-
-	l = new(lv0)
-	l.fs = fs
-	dir := makeL0Dir(dbPath)
-	err = fs.MkdirAll(dir, 0755)
-	if vfs.IsExist(err) {
-		err = nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	l.dir = dir
-	db, err := pebble.Open(dir, &pebble.Options{
-		Logger:       xlog.GetGRPCLoggerV2(),
-		MemTableSize: defaultMemTableSize,
-	})
-	if err != nil {
-		return nil, err
-	}
-	l.db = db
-	return
-}
-
-func loadLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
+func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate bool) (*lv0, error) {
 
 	dir := makeL0Dir(dbPath)
-	if !vfs.IsDirExisted(fs, dir) {
-		return nil, orpc.ErrNotFound
+	if isCreate {
+		_ = fs.RemoveAll(dir)
+		err := fs.MkdirAll(dir, 0755)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if !vfs.IsDirExisted(fs, dir) {
+			return nil, orpc.ErrNotFound
+		}
 	}
+
 	db, err := pebble.Open(dir, &pebble.Options{
 		Logger:       xlog.GetGRPCLoggerV2(),
 		MemTableSize: defaultMemTableSize,
@@ -67,6 +51,16 @@ func loadLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
 		fs:  fs,
 		db:  db,
 	}, nil
+}
+
+func createLv0(dbPath string, fs vfs.FS) (*lv0, error) {
+
+	return createOrLoadLv0(dbPath, fs, true)
+}
+
+func loadLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
+
+	return createOrLoadLv0(dbPath, fs, false)
 }
 
 func (l *lv0) set(key, value []byte) error {
