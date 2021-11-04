@@ -81,10 +81,9 @@ const (
 	segIdxHeaderSize = 4 * 1024
 )
 
-// createLV1 creates new lv1 with empty segment.
-func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) {
+func createOrLoadLv1(dbPath string, fs vfs.FS, sched xio.Scheduler, isCreate bool) (l *lv1, err error) {
 
-	sp, err := createLv1Paths(dbPath, fs)
+	sp, err := createLv1Paths(dbPath, fs, isCreate)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +102,28 @@ func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error
 	}
 
 	return
+}
+
+func loadLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) {
+
+	l, err = createOrLoadLv1(dbPath, fs, sched, false)
+	if err != nil {
+		return nil, err
+	}
+
+	err = l.load()
+	if err != nil {
+		l.close()
+		return nil, err
+	}
+
+	return
+}
+
+// createLV1 creates new lv1 with empty segment.
+func createLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) {
+
+	return createOrLoadLv1(dbPath, fs, sched, true)
 }
 
 // After createLv1, load lv1 from disk.
@@ -357,18 +378,22 @@ func (l *lv1) searchSeg(key []byte) (ids []int, ok bool) {
 }
 
 // createLv1Paths create paths needed by lv1, and return segments paths.
-func createLv1Paths(dbPath string, fs vfs.FS) (string, error) {
+func createLv1Paths(dbPath string, fs vfs.FS, isCreate bool) (string, error) {
 	dir := makeL1Dir(dbPath)
-	err := fs.MkdirAll(dir, 0755)
-	if vfs.IsExist(err) {
-		err = nil
-	}
-	if err != nil {
-		return "", err
+	if isCreate {
+		_ = fs.RemoveAll(dir)
+		err := fs.MkdirAll(dir, 0755)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		if !vfs.IsDirExisted(fs, dir) {
+			return "", orpc.ErrNotFound
+		}
 	}
 
 	sp := makeL1SegDir(dir)
-	err = fs.MkdirAll(sp, 0755)
+	err := fs.MkdirAll(sp, 0755)
 	if vfs.IsExist(err) {
 		err = nil
 	}

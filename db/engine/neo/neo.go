@@ -1,7 +1,6 @@
 package neo
 
 import (
-	"errors"
 	"io"
 	"sync/atomic"
 
@@ -93,14 +92,9 @@ func Load(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, er
 	if err != nil {
 		return nil, err
 	}
-	d.lv1, err = createLv1(path, fs, sched)
-	if err != nil {
-		return nil, err
-	}
-	err = d.lv1.load()
+	d.lv1, err = loadLv1(path, fs, sched)
 	if err != nil {
 		_ = d.lv0.close()
-		d.lv1.close()
 		return nil, err
 	}
 
@@ -155,12 +149,13 @@ func (d *Database) GetID() uint32 {
 	return d.id
 }
 
-var (
-	ErrLv1SegmentsFull = errors.New("lv1 reached 1024 segments")
-)
-
 func (d *Database) Set(key, value []byte) error {
-	d.doTrans()
+
+	if d.isClosed() {
+		return orpc.ErrServiceClosed
+	}
+
+	d.doTrans() // Check trans first.
 
 	var err error
 	defer func() {
@@ -197,6 +192,15 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 		}
 	}()
 	panic("implement me")
+}
+
+func (d *Database) needTrans() bool {
+
+	if atomic.LoadUint64(&d.lvl0Used) > DefaultToLv1Threshold ||
+		atomic.LoadUint64(&d.lvl0DirtyCount) > DefaultToLv1MaxEntries {
+		return true
+	}
+	return false
 }
 
 // 1. check threshold
@@ -244,8 +248,14 @@ func (d *Database) Close() error {
 
 	d.lv1.close()
 
+	atomic.StoreInt64(&d.isRunning, 0)
+
 	xlog.Infof("database(neo): %d is closed", d.id)
 	return nil
+}
+
+func (d *Database) transUndone() bool {
+	return atomic.LoadInt64(&d.isTran) == 1
 }
 
 func (d *Database) isClosed() bool {

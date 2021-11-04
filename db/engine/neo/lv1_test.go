@@ -559,7 +559,7 @@ func TestLv1Load(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ll, err := createLv1(dbPath, fs, &xio.NopScheduler{})
+	ll, err := loadLv1(dbPath, fs, &xio.NopScheduler{})
 	if err != nil {
 		t.Fatal(err)
 	}
