@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
+
 	"github.com/openacid/slim/encode"
 
 	"github.com/openacid/slim/trie"
@@ -120,8 +122,16 @@ func (l *lv1) load() (err error) {
 
 	segs, waitRemoved := l.findSegPairs(ns)
 
+	maxID := int64(-1)
+
 	idxBuf := directio.AlignedBlock(segIdxLoadBufSize)
 	for ids := range segs {
+
+		id := cast.ToInt64(ids)
+		if id > maxID {
+			maxID = id
+		}
+
 		err = l.loadSeg(ids, idxBuf)
 		if err != nil {
 			if errors.Is(err, orpc.ErrChecksumMismatch) { // Regard as short-write caused by interruption.
@@ -139,6 +149,8 @@ func (l *lv1) load() (err error) {
 	for _, rm := range waitRemoved {
 		_ = fs.Remove(filepath.Join(segDir, rm))
 	}
+
+	l.nextSegID = maxID + 1
 
 	return nil
 }
@@ -385,7 +397,7 @@ func (l *lv1) makeSegFile(minSize int64) (f vfs.File, id int64, err error) {
 	}()
 
 	if id >= 1024 {
-		return nil, 0, ErrLv1SegmentsFull
+		return nil, 0, xerrors.WithMessage(zmerrors.ErrDatabaseFull, "lv1 is full of 1024 segments")
 	}
 
 	fp := makeSegPath(l.segsPath, id)
