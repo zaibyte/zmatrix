@@ -3,6 +3,7 @@ package neo
 import (
 	"io"
 	"sync/atomic"
+	"time"
 
 	"g.tesamc.com/IT/zaipkg/xlog"
 
@@ -106,6 +107,9 @@ func (d *Database) Start() error {
 	if !atomic.CompareAndSwapInt64(&d.isRunning, 0, 1) {
 		return nil
 	}
+
+	xlog.Infof("database(neo): %d is running", d.id)
+
 	return nil
 }
 
@@ -242,6 +246,14 @@ func (d *Database) Close() error {
 	if !atomic.CompareAndSwapInt64(&d.isRunning, 1, 0) {
 		// already closed
 		return nil
+	}
+
+	for {
+		if d.transUndone() {
+			time.Sleep(time.Second * 5)
+		} else {
+			break
+		}
 	}
 
 	err := d.lv0.close()
