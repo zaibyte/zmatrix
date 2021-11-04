@@ -237,7 +237,8 @@ func (d *Database) Migrate(dst *db.KVer) error {
 }
 
 func (d *Database) Close() error {
-	if d.isClosed() {
+	if !atomic.CompareAndSwapInt64(&d.isRunning, 1, 0) {
+		// already closed
 		return nil
 	}
 
@@ -247,8 +248,6 @@ func (d *Database) Close() error {
 	}
 
 	d.lv1.close()
-
-	atomic.StoreInt64(&d.isRunning, 0)
 
 	xlog.Infof("database(neo): %d is closed", d.id)
 	return nil
