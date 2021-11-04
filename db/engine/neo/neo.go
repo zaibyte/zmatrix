@@ -5,6 +5,8 @@ import (
 	"io"
 	"sync/atomic"
 
+	"g.tesamc.com/IT/zaipkg/xlog"
+
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xerrors"
 
@@ -31,12 +33,36 @@ const (
 )
 
 type Database struct {
+	isRunning int64
+
 	id    uint32
 	state int32
 	// volatile data, count bytes in lvl0 roughly for triggering flushing job to lvl1.
 	// After flushing, should minus bytes flushed.
 	lvl0Used       uint64
 	lvl0DirtyCount uint64
+
+	fs    vfs.FS
+	sched xio.Scheduler
+	path  string
+
+	lv0 *lv0
+	lv1 *lv1
+}
+
+func New() *Database {
+	return &Database{
+		isRunning:      0,
+		id:             0,
+		state:          0,
+		lvl0Used:       0,
+		lvl0DirtyCount: 0,
+		fs:             nil,
+		sched:          nil,
+		path:           "",
+		lv0:            nil,
+		lv1:            nil,
+	}
 }
 
 func (d *Database) Start() error {
@@ -63,7 +89,20 @@ func (d *Database) SetState(s zmatrixpb.DBState) (state zmatrixpb.DBState, ok bo
 }
 
 func (d *Database) Remove() error {
-	panic("implement me")
+
+	err := d.Close()
+	if err != nil {
+		return err
+	}
+
+	d.SetState(zmatrixpb.DBState_DB_Removed)
+
+	err = d.fs.RemoveAll(d.path)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 var _ db.DB = new(Database)
@@ -152,7 +191,23 @@ func (d *Database) Migrate(dst *db.KVer) error {
 }
 
 func (d *Database) Close() error {
-	panic("implement me")
+	if d.isClosed() {
+		return nil
+	}
+
+	err := d.lv0.close()
+	if err != nil {
+		xlog.Warnf("failed to close database(neo): %d lv0: %s", d.id, err.Error())
+	}
+
+	d.lv1.close()
+
+	xlog.Infof("database(neo): %d is closed", d.id)
+	return nil
+}
+
+func (d *Database) isClosed() bool {
+	return atomic.LoadInt64(&d.isRunning) == 0
 }
 
 var _ db.DB = new(Database)
