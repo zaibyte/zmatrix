@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"g.tesamc.com/IT/zaipkg/directio"
+
 	"g.tesamc.com/IT/zaipkg/orpc"
 
 	"g.tesamc.com/IT/zaipkg/xio"
@@ -429,4 +431,189 @@ func TestLv1PersistIdx(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, idxB, actIdxB)
+
+	idxF, err := l.fs.Open(filepath.Join(l.segsPath, "0.idx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb := directio.AlignedBlock(4096)
+	_, err = idxF.ReadAt(tb, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb[0] += 1
+	_, err = idxF.WriteAt(tb, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err = loadSegIdxFromFile(l.fs, filepath.Join(l.segsPath, "0.idx"), buf)
+	assert.True(t, errors.Is(err, orpc.ErrChecksumMismatch))
+}
+
+func TestLv1Load(t *testing.T) {
+	fs := testFS
+
+	dbPath := filepath.Join(os.TempDir(), "neo.lv1", fmt.Sprintf("%d", xrand.Uint32()))
+
+	err := fs.MkdirAll(dbPath, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.RemoveAll(dbPath)
+
+	l, err := createLv1(dbPath, fs, &xio.NopScheduler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.close()
+
+	dir, err := ioutil.TempDir(os.TempDir(), "pebble")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	l0, err := pebble.Open(dir, &pebble.Options{
+		Logger: xlog.GetGRPCLoggerV2(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l0.Close()
+
+	cnt := 128
+	kLen := 8 // fixed key length helping to accelerate testing, and the lengths of values are enough random.
+	keyBuf := make([]byte, kLen)
+	valBuf := make([]byte, config.MaxValueLen)
+
+	rand.Seed(time.Now().UnixNano())
+	rand.Read(valBuf) // We don't need too many value.
+
+	minSize := int64(0)
+
+	for i := 0; i < cnt-5; i++ {
+
+		binary.BigEndian.PutUint64(keyBuf, uint64(1024-i))
+
+		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
+		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
+
+		err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+		if err != nil {
+			t.Fatal(err)
+		}
+		minSize += int64(vLen)
+	}
+
+	// Ensure there are < KB, == KB, > lv1BlockAlignSize, B, 4MB value.
+	vLen := lv1BlockAlignSize + 1025
+	binary.BigEndian.PutUint64(keyBuf, uint64(5))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 1022
+	binary.BigEndian.PutUint64(keyBuf, uint64(4))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 1024
+	binary.BigEndian.PutUint64(keyBuf, uint64(3))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 1
+	binary.BigEndian.PutUint64(keyBuf, uint64(2))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+	vLen = 4 * 1024 * 1024
+	binary.BigEndian.PutUint64(keyBuf, uint64(1))
+	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
+	if err != nil {
+		t.Fatal(err)
+	}
+	minSize += int64(vLen)
+
+	snap := l0.NewSnapshot()
+
+	id, idx, min, max, err := l.makeSegIdx(snap, 1024, minSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, int64(0), id)
+	err = l.persistIdx(id, idx, []byte(min), []byte(max))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.addSegIdxRange(id, idx, []byte(min), []byte(max))
+
+	err = l.persistIdx(id, idx, []byte(min), []byte(max))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ll, err := createLv1(dbPath, fs, &xio.NopScheduler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.close()
+	err = ll.load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	iter := snap.NewIter(nil)
+	defer iter.Close()
+
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := iter.Key()
+
+		v, closer, err := ll.search(k)
+		if err != nil {
+			t.Fatalf("failed to search: %s", err.Error())
+		}
+		if err == nil {
+			if !bytes.Equal(v, iter.Value()) {
+				t.Fatal("value mismatched")
+			}
+			_ = closer.Close()
+		}
+	}
+
+	wg := new(sync.WaitGroup)
+	wg.Add(4)
+
+	for i := 0; i < 4; i++ {
+		go func() {
+			defer wg.Done()
+			iter := snap.NewIter(nil)
+			defer iter.Close()
+
+			for iter.First(); iter.Valid(); iter.Next() {
+				k := iter.Key()
+
+				v, closer, err := ll.search(k)
+				if err != nil {
+					t.Errorf("failed to search: %s", err.Error())
+					return
+				}
+				if err == nil {
+					if !bytes.Equal(v, iter.Value()) {
+						t.Error("value mismatched")
+						return
+					}
+					_ = closer.Close()
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

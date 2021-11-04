@@ -12,6 +12,10 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/openacid/slim/encode"
+
+	"github.com/openacid/slim/trie"
+
 	"g.tesamc.com/IT/zmatrix/pkg/config"
 
 	"github.com/spf13/cast"
@@ -711,12 +715,16 @@ func loadSegIdxFromFile(fs vfs.FS, fp string, buf []byte) (idx *index.SlimIndex,
 		return
 	}
 
-	idx = new(index.SlimIndex)
-
-	err = idx.Unmarshal(buf[segIdxHeaderSize : segIdxHeaderSize+idxSize])
+	st, err := trie.NewSlimTrie(encode.I64{}, nil, nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	err = st.Unmarshal(buf[segIdxHeaderSize : segIdxHeaderSize+idxSize])
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	idx = &index.SlimIndex{SlimTrie: *st}
 	return
 }
 
