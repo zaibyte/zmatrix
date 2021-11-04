@@ -5,6 +5,9 @@ import (
 	"io"
 	"sync/atomic"
 
+	"g.tesamc.com/IT/zaipkg/orpc"
+	"g.tesamc.com/IT/zaipkg/xerrors"
+
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xio"
 	"g.tesamc.com/IT/zmatrix/db"
@@ -28,7 +31,8 @@ const (
 )
 
 type Database struct {
-	id uint32
+	id    uint32
+	state int32
 	// volatile data, count bytes in lvl0 roughly for triggering flushing job to lvl1.
 	// After flushing, should minus bytes flushed.
 	lvl0Used       uint64
@@ -40,11 +44,22 @@ func (d *Database) Start() error {
 }
 
 func (d *Database) GetState() zmatrixpb.DBState {
-	panic("implement me")
+
+	state := atomic.LoadInt32(&d.state)
+	return zmatrixpb.DBState(state)
 }
 
-func (d *Database) SetState(s zmatrixpb.DBState) {
-	panic("implement me")
+func (d *Database) SetState(s zmatrixpb.DBState) (state zmatrixpb.DBState, ok bool) {
+
+	old := atomic.LoadInt32(&d.state)
+	if int32(s) == old {
+		return s, true
+	}
+	ok = atomic.CompareAndSwapInt32(&d.state, old, int32(s))
+	if ok {
+		return s, true
+	}
+	return d.GetState(), false
 }
 
 func (d *Database) Remove() error {
@@ -133,7 +148,7 @@ func (d *Database) Seal() error {
 }
 
 func (d *Database) Migrate(dst *db.KVer) error {
-	panic("implement me")
+	return xerrors.WithMessage(orpc.ErrNotImplemented, "neo hasn't implemented Migrate yet")
 }
 
 func (d *Database) Close() error {

@@ -14,7 +14,8 @@ type DB interface {
 	GetID() uint32
 
 	GetState() zmatrixpb.DBState
-	SetState(s zmatrixpb.DBState)
+	// SetState sets DB's state. After set, the get will have new state if set ok. The behavior after state changing won't be promised.
+	SetState(s zmatrixpb.DBState) (state zmatrixpb.DBState, ok bool)
 
 	KVer
 
