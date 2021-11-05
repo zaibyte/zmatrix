@@ -26,6 +26,7 @@ type DB interface {
 	Remove() error
 
 	// Migrate migrates a sealed DB to another KVer.
+	// Migrate will mark Database sealed.
 	Migrate(dst *KVer) error
 
 	// Close closes database, release runtime resource.

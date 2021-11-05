@@ -14,6 +14,12 @@ import (
 	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 )
 
+// db boot sector is built for starting database correctly:
+//
+// DBBoot sector struct:
+// 0                                                    BootSectorSize
+// | content | random_padding | content_length(2B) | checksum(4B) |
+
 const (
 	// BootSectorSize is the database boot sector's size.
 	// The total length of boot is 4 KiB, enough for holding dozens databases,
@@ -31,15 +37,11 @@ type Boot struct {
 	buf []byte
 }
 
-func MakeRootPath(dbDir string) string {
+func MakeBootPath(dbDir string) string {
 	return filepath.Join(dbDir, BootSectorName)
 }
 
 // CreateDBBoot writes down a data block in a file as the bootstrap of a database.
-//
-// DBBoot struct:
-// 0                                                    BootSectorSize
-// | content | random_padding | content_length(2B) | checksum(4B) |
 func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DBEngine) (*Boot, error) {
 
 	f, err := fs.Create(dbBootPath)
@@ -51,6 +53,7 @@ func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DB
 		F: f,
 		DB: &zmatrixpb.DBBoot{
 			Id:     dbID,
+			State:  zmatrixpb.DBState_DB_ReadWrite,
 			Engine: engine,
 		},
 		buf: directio.AlignedBlock(BootSectorSize),
