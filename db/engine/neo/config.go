@@ -17,10 +17,12 @@ const (
 )
 
 type Config struct {
-	ToLv1Threshold typeutil.ByteSize `toml:"to_lv1_threshold"`
+	ToLv1Threshold  typeutil.ByteSize `toml:"to_lv1_threshold"`
+	ToLv1MaxEntries uint64            `toml:"to_lv_1_max_entries"`
 }
 
 func (c *Config) Adjust() {
 
 	config.Adjust(&c.ToLv1Threshold, DefaultToLv1Threshold)
+	config.Adjust(&c.ToLv1MaxEntries, DefaultToLv1MaxEntries)
 }

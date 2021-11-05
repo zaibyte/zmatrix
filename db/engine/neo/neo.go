@@ -37,6 +37,8 @@ const (
 )
 
 type Database struct {
+	cfg *Config
+
 	isRunning int64
 
 	id    uint32
@@ -57,9 +59,12 @@ type Database struct {
 }
 
 // Create a new neo Database.
-func Create(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+func Create(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+
+	cfg.Adjust()
 
 	d := &Database{
+		cfg:   cfg,
 		id:    id,
 		state: int32(zmatrixpb.DBState_DB_ReadWrite),
 		fs:    fs,
@@ -86,9 +91,10 @@ func Create(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, 
 // In Load process, we maybe just failed in last transfer job which means the next transfer job
 // may twice bigger than we expect, it's okay.
 // lv1 could hold that big segment.
-func Load(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 
 	d := &Database{
+		cfg:   cfg,
 		id:    id,
 		state: int32(zmatrixpb.DBState_DB_ReadWrite),
 		fs:    fs,
@@ -307,8 +313,8 @@ func (d *Database) setCheck() (setOK, needTran bool, err error) {
 
 func (d *Database) needTrans() bool {
 
-	if atomic.LoadUint64(&d.lv0Used) > DefaultToLv1Threshold ||
-		atomic.LoadUint64(&d.lv0DirtyCnt) > DefaultToLv1MaxEntries {
+	if atomic.LoadUint64(&d.lv0Used) > uint64(d.cfg.ToLv1Threshold) ||
+		atomic.LoadUint64(&d.lv0DirtyCnt) > d.cfg.ToLv1MaxEntries {
 		return true
 	}
 	return false
