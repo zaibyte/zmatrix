@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"g.tesamc.com/IT/zmatrix/mgr"
+
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
 
 	"g.tesamc.com/IT/zaipkg/vdisk"
@@ -31,6 +33,8 @@ type Server struct {
 
 	mSvr    *xrpc.Server  // zMatrix server.
 	httpSvr *xhttp.Server // Operator server using HTTP protocol.
+
+	mgr mgr.IMgr
 
 	zBufDisks *sdisk.ZBufDisks
 

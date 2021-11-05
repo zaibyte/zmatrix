@@ -1,7 +1,10 @@
 package server
 
 import (
+	"errors"
 	"io"
+
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xerrors"
@@ -22,7 +25,23 @@ func (s *Server) Set(db uint32, key, value []byte) error {
 		return xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
 	}
 
-	panic("implement me")
+	d, err := s.mgr.GetDB(db)
+	if err != nil {
+		if errors.Is(err, orpc.ErrNotFound) {
+			dp, err := s.mgr.PickDisk()
+			if err != nil {
+				return err
+			}
+			d, err = s.mgr.CreateDB(db, dp, zmatrixpb.DBEngine_DB_Engine_Neo)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	return d.Set(key, value)
 }
 
 func (s *Server) Get(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
@@ -35,7 +54,11 @@ func (s *Server) Get(db uint32, key []byte) (value []byte, closer io.Closer, err
 		return nil, nil, xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
 	}
 
-	panic("implement me")
+	d, err := s.mgr.GetDB(db)
+	if err != nil {
+		return nil, nil, err
+	}
+	return d.Get(key)
 }
 
 func (s *Server) SetBatch(db uint32, keys, values [][]byte) error {
@@ -53,7 +76,23 @@ func (s *Server) SetBatch(db uint32, keys, values [][]byte) error {
 		}
 	}
 
-	panic("implement me")
+	d, err := s.mgr.GetDB(db)
+	if err != nil {
+		if errors.Is(err, orpc.ErrNotFound) {
+			dp, err := s.mgr.PickDisk()
+			if err != nil {
+				return err
+			}
+			d, err = s.mgr.CreateDB(db, dp, zmatrixpb.DBEngine_DB_Engine_Neo)
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	return d.SetBatch(keys, values)
 }
 
 func (s *Server) Remove(db uint32) error {
@@ -62,7 +101,7 @@ func (s *Server) Remove(db uint32) error {
 		return xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
 	}
 
-	panic("implement me")
+	return s.mgr.RemoveDB(db)
 }
 
 func (s *Server) Seal(db uint32) error {
@@ -71,5 +110,9 @@ func (s *Server) Seal(db uint32) error {
 		return xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
 	}
 
-	panic("implement me")
+	d, err := s.mgr.GetDB(db)
+	if err != nil {
+		return err
+	}
+	return d.Seal()
 }
