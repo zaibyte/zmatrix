@@ -234,14 +234,20 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 		return nil, orpc.ErrServiceClosed
 	}
 
-	if dbID >= 16 {
-		err = xerrors.WithMessage(orpc.ErrBadRequest, fmt.Sprintf("illegal db id, exp < 16; but got: %d", dbID))
+	if dbID > config2.MaxDBNum {
+		err = xerrors.WithMessage(orpc.ErrBadRequest, fmt.Sprintf("illegal db id, exp <= %d; but got: %d", config2.MaxDBNum, dbID))
 		xlog.Error(err.Error())
 		return nil, err
 	}
 
 	if engine != zmatrixpb.DBEngine_DB_Engine_Neo {
 		err = xerrors.WithMessage(orpc.ErrBadRequest, "unsupported db engine")
+		xlog.Error(err.Error())
+		return nil, err
+	}
+
+	if m.getDB(dbID) != nil {
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "database already existed")
 		xlog.Error(err.Error())
 		return nil, err
 	}
