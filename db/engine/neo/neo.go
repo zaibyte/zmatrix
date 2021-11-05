@@ -191,10 +191,6 @@ func (d *Database) Set(key, value []byte) error {
 	return nil
 }
 
-func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
-	panic("implement me")
-}
-
 func (d *Database) SetBatch(keys, values [][]byte) error {
 	d.doTrans()
 
@@ -212,6 +208,44 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 		}
 	}()
 	panic("implement me")
+}
+
+func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
+
+	err := d.getCheck()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// search in lv1 first, because for best performance, we should seal Database after all set done,
+	// in this case, all data are in lv1.
+	//
+	// Other reasons:
+	// 1. all meta are in memory in lv1, the searching is much faster in theory even lv0 is small.
+	v, closer, err := d.lv1.search(key)
+	if err != nil {
+		if errors.Is(err, orpc.ErrNotFound) {
+			err = nil // Try to Get in lv0.
+		} else {
+			return nil, nil, err
+		}
+	} else {
+		return v, closer, nil
+	}
+
+	return d.lv0.get(key)
+}
+
+func (d *Database) getCheck() (err error) {
+	if d.isClosed() {
+		return orpc.ErrServiceClosed
+	}
+
+	state := d.GetState()
+	if state == zmatrixpb.DBState_DB_Sealed || state == zmatrixpb.DBState_DB_ReadWrite {
+		return nil
+	}
+	return xerrors.WithMessage(orpc.ErrInternalServer, fmt.Sprintf("database: %d cannot get caused by state: %s", d.id, state.String()))
 }
 
 // setCheck checks states and transfer before set.
