@@ -3,13 +3,13 @@ package mgr
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 
-	"g.tesamc.com/IT/zmatrix/db/engine/neo"
-
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
 
 	"g.tesamc.com/IT/keeper/pkg/diskpicker/filter"
 	"g.tesamc.com/IT/zaipkg/orpc"
@@ -19,7 +19,9 @@ import (
 	"g.tesamc.com/IT/zaipkg/xerrors"
 	"g.tesamc.com/IT/zaipkg/xlog"
 	"g.tesamc.com/IT/zmatrix/db"
+	"g.tesamc.com/IT/zmatrix/db/engine/neo"
 	"g.tesamc.com/IT/zproto/pkg/metapb"
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 )
 
 type Mgr struct {
@@ -30,7 +32,7 @@ type Mgr struct {
 	fs    vfs.FS
 	vdisk vdisk.Disk
 
-	dbs []*unsafe.Pointer // *DB
+	dbs []unsafe.Pointer // *DB
 
 	disks *sdisk.ZBufDisks
 
@@ -48,7 +50,7 @@ var _ IMgr = new(Mgr)
 
 func (m *Mgr) getDB(id uint32) *DB {
 
-	p := atomic.LoadPointer(m.dbs[id])
+	p := atomic.LoadPointer(&m.dbs[id])
 	if p == nil {
 		return nil
 	}
@@ -59,9 +61,9 @@ func (m *Mgr) getDB(id uint32) *DB {
 func (m *Mgr) setDB(id uint32, db *DB) {
 
 	if db == nil {
-		atomic.StorePointer(m.dbs[id], nil)
+		atomic.StorePointer(&m.dbs[id], nil)
 	} else {
-		atomic.StorePointer(m.dbs[id], unsafe.Pointer(db))
+		atomic.StorePointer(&m.dbs[id], unsafe.Pointer(db))
 	}
 }
 
@@ -72,12 +74,14 @@ func (m *Mgr) remove(id uint32) {
 
 func New(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Mgr, err error) {
 
+	cfg.Adjust()
+
 	k = new(Mgr)
 	k.cfg = cfg
 
 	k.ctx, k.cancel = context.WithCancel(ctx)
 
-	k.dbs = make([]*unsafe.Pointer, MaxDBNum)
+	k.dbs = make([]unsafe.Pointer, config2.MaxDBNum)
 	k.wg = new(sync.WaitGroup)
 
 	k.fs = fs
@@ -102,23 +106,36 @@ func (m *Mgr) Start() error {
 
 		sched, _ := m.disks.GetSched(GetDiskIDFromPath(dp)) // Must be here.
 
-		for i := 0; i < MaxDBNum; i++ {
+		for i := 0; i < config2.MaxDBNum; i++ {
 
 			dbDir := MakeDBDir(uint32(i), dp)
 
-			_, err := db.LoadBoot(m.fs, dbDir)
+			if !vfs.IsDirExisted(m.fs, dbDir) {
+				continue // There is no such database.
+			}
+
+			boot, err := db.LoadBoot(m.fs, dbDir)
 			if err != nil {
 				err = xerrors.WithMessagef(err, "failed to load database: %d", i)
 				xlog.Warn(err.Error())
 				continue
 			}
 
-			d, err := neo.Load(dbDir, m.fs, sched)
-			if err != nil {
-				err = xerrors.WithMessagef(err, "failed to load database: %d", i)
-				xlog.Warn(err.Error())
-				continue
+			// There is a database.
+
+			var d db.DB
+			if boot.DB.State == zmatrixpb.DBState_DB_Broken ||
+				boot.DB.State == zmatrixpb.DBState_DB_Removed { // Actually removed database shouldn't be shown here, so regard it broken.
+				d, _ = neo.CreateBroken(uint32(i), dbDir)
+			} else {
+				d, err = neo.Load(&m.cfg.NeoConfig, uint32(i), dbDir, m.fs, sched)
+				if err != nil {
+					err = xerrors.WithMessagef(err, "failed to load database: %d", i)
+					xlog.Warn(err.Error())
+					d, _ = neo.CreateBroken(uint32(i), dbDir)
+				}
 			}
+
 			m.setDB(uint32(i), &DB{
 				db:  d,
 				dir: dbDir,
@@ -128,15 +145,21 @@ func (m *Mgr) Start() error {
 
 	m.startBackgroundLoop()
 
-	xlog.Info("keeper is running")
+	xlog.Info("zmatrix mgr is running")
 
 	return nil
 }
 
 func (m *Mgr) startBackgroundLoop() {
 
-	m.wg.Add(1)
+	m.wg.Add(2)
 	go m.disks.DetectLoopWithUsage()
+	go m.updateStateLoop()
+}
+
+// Every update duration flush new states to disk.
+func (m *Mgr) updateStateLoop() {
+
 }
 
 func (m *Mgr) isClosed() bool {
@@ -311,4 +334,12 @@ func (m *Mgr) Close() {
 func (m *Mgr) stopBgLoops() {
 	m.cancel()
 	m.wg.Wait()
+}
+
+// GetDiskIDFromPath gets diskID from:
+// <data_root>/disk_<disk_id>
+func GetDiskIDFromPath(diskPath string) string {
+
+	fn := filepath.Base(diskPath)
+	return strings.TrimPrefix(fn, sdisk.DiskNamePrefix)
 }
