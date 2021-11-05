@@ -58,6 +58,16 @@ type Database struct {
 	isTran int64 // there is lv0 -> lv1 job unfinished.
 }
 
+// CreateBroken creates broken Database when load failed.
+func CreateBroken(id uint32, path string) (*Database, error) {
+
+	d := new(Database)
+	d.id = id
+	d.path = path
+	d.state = int32(zmatrixpb.DBState_DB_Broken)
+	return d, nil
+}
+
 // Create a new neo Database.
 func Create(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 
@@ -394,6 +404,10 @@ func (d *Database) doTrans() {
 }
 
 func (d *Database) Seal() error {
+
+	if d.isClosed() {
+		return orpc.ErrServiceClosed
+	}
 
 	state, ok := d.SetState(zmatrixpb.DBState_DB_Sealed)
 	if !ok {
