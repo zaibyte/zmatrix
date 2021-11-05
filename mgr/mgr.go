@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
@@ -32,7 +33,8 @@ type Mgr struct {
 	fs    vfs.FS
 	vdisk vdisk.Disk
 
-	dbs []unsafe.Pointer // *DB
+	dbs     []unsafe.Pointer // *DB
+	dbBoots []unsafe.Pointer // *db.Boot
 
 	disks *sdisk.ZBufDisks
 
@@ -124,22 +126,33 @@ func (m *Mgr) Start() error {
 			// There is a database.
 
 			var d db.DB
+			isBroken := false
 			if boot.DB.State == zmatrixpb.DBState_DB_Broken ||
 				boot.DB.State == zmatrixpb.DBState_DB_Removed { // Actually removed database shouldn't be shown here, so regard it broken.
 				d, _ = neo.CreateBroken(uint32(i), dbDir)
+				isBroken = true
 			} else {
 				d, err = neo.Load(&m.cfg.NeoConfig, uint32(i), dbDir, m.fs, sched)
 				if err != nil {
 					err = xerrors.WithMessagef(err, "failed to load database: %d", i)
 					xlog.Warn(err.Error())
 					d, _ = neo.CreateBroken(uint32(i), dbDir)
+					isBroken = true
 				}
+			}
+
+			if isBroken {
+				boot.SetState(zmatrixpb.DBState_DB_Broken)
 			}
 
 			m.setDB(uint32(i), &DB{
 				db:  d,
 				dir: dbDir,
 			})
+
+			_ = boot.Flush() // Don't care the result here.
+
+			atomic.StorePointer(&m.dbBoots[i], unsafe.Pointer(boot))
 		}
 	}
 
@@ -160,6 +173,33 @@ func (m *Mgr) startBackgroundLoop() {
 // Every update duration flush new states to disk.
 func (m *Mgr) updateStateLoop() {
 
+	defer m.wg.Done()
+
+	ticker := time.NewTicker(m.cfg.UpdateStateDuration.Duration)
+
+	for {
+		select {
+		case <-ticker.C:
+
+			for i := range m.dbBoots {
+				d, err := m.GetDB(uint32(i))
+				if err != nil {
+					continue
+				}
+				s := d.GetState()
+
+				p := atomic.LoadPointer(&m.dbBoots[i])
+				if p == nil {
+					continue
+				}
+				(*db.Boot)(p).SetState(s)
+				_ = (*db.Boot)(p).Flush()
+			}
+
+		case <-m.ctx.Done():
+			return
+		}
+	}
 }
 
 func (m *Mgr) isClosed() bool {
