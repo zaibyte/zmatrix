@@ -61,6 +61,9 @@ type Database struct {
 // Create a new neo Database.
 func Create(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 
+	if cfg == nil {
+		cfg = DefaultConfig
+	}
 	cfg.Adjust()
 
 	d := &Database{
@@ -92,6 +95,12 @@ func Create(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler)
 // may twice bigger than we expect, it's okay.
 // lv1 could hold that big segment.
 func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+
+	if cfg == nil {
+		cfg = DefaultConfig
+	}
+
+	cfg.Adjust()
 
 	d := &Database{
 		cfg:   cfg,
@@ -344,7 +353,7 @@ func (d *Database) doTrans() {
 		} else {
 			if errors.Is(err, zmerrors.ErrDatabaseFull) {
 				d.SetState(zmatrixpb.DBState_DB_Sealed)
-				xlog.Warnf("database(neo): %d is full: %s", err.Error())
+				xlog.Warnf("database(neo): %d is full: %s", d.id, err.Error())
 				err = nil
 				atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
 				return

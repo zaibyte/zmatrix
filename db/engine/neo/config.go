@@ -21,6 +21,11 @@ type Config struct {
 	ToLv1MaxEntries uint64            `toml:"to_lv_1_max_entries"`
 }
 
+var DefaultConfig = &Config{
+	ToLv1MaxEntries: DefaultToLv1MaxEntries,
+	ToLv1Threshold:  DefaultToLv1Threshold,
+}
+
 func (c *Config) Adjust() {
 
 	config.Adjust(&c.ToLv1Threshold, DefaultToLv1Threshold)
