@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,4 +97,30 @@ func TestDatabase_Get(t *testing.T) {
 
 		_ = closer.Close()
 	}
+
+	wg := new(sync.WaitGroup)
+	wg.Add(4)
+
+	for i := 0; i < 4; i++ {
+		go func() {
+			defer wg.Done()
+
+			key := make([]byte, 8)
+			for k, v := range kvs {
+
+				binary.BigEndian.PutUint64(key, k)
+				vact, closer, err := d.Get(key)
+				if err != nil {
+					t.Error(err)
+				}
+
+				assert.Equal(t, valBuf[:v], vact)
+
+				_ = closer.Close()
+			}
+		}()
+	}
+
+	wg.Wait()
+
 }
