@@ -133,6 +133,16 @@ func (d *Database) SetState(s zmatrixpb.DBState) (state zmatrixpb.DBState, ok bo
 	if int32(s) == old {
 		return s, true
 	}
+
+	if s == zmatrixpb.DBState_DB_ReadWrite { // New read write state could not be executed.
+		return zmatrixpb.DBState(old), false
+	}
+
+	olds := zmatrixpb.DBState(old)
+	if olds == zmatrixpb.DBState_DB_Broken || olds == zmatrixpb.DBState_DB_Removed { // Broken/Removed state cannot be changed.
+		return olds, false
+	}
+
 	ok = atomic.CompareAndSwapInt32(&d.state, old, int32(s))
 	if ok {
 		return s, true
@@ -378,7 +388,7 @@ func (d *Database) Close() error {
 
 	for {
 		if d.transUndone() {
-			time.Sleep(time.Second * 5)
+			time.Sleep(time.Second * 5) // It's the easiest way to wait transfer job done.
 		} else {
 			break
 		}
