@@ -82,6 +82,10 @@ func Create(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, 
 }
 
 // Load existed neo Database from disk.
+//
+// In Load process, we maybe just failed in last transfer job which means the next transfer job
+// may twice bigger than we expect, it's okay.
+// lv1 could hold that big segment.
 func Load(id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
 
 	d := &Database{
@@ -192,9 +196,19 @@ func (d *Database) Set(key, value []byte) error {
 }
 
 func (d *Database) SetBatch(keys, values [][]byte) error {
-	d.doTrans()
 
-	var err error
+	setOK, needTrans, err := d.setCheck()
+	if err != nil {
+		return err
+	}
+
+	if needTrans {
+		go d.doTrans()
+	}
+
+	if !setOK { // Must be undone transfer job.
+		return zmerrors.ErrTooFastSet
+	}
 
 	defer func() {
 		if err == nil {
@@ -207,7 +221,13 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 			}
 		}
 	}()
-	panic("implement me")
+
+	err = d.lv0.batchSet(keys, values)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
