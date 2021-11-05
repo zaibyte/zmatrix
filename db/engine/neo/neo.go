@@ -325,6 +325,11 @@ func (d *Database) doTrans() {
 	dirty = atomic.LoadUint64(&d.lv0DirtyCnt)
 	used = atomic.LoadUint64(&d.lv0Used)
 	var err error
+
+	if dirty == 0 {
+		return
+	}
+
 	defer func() {
 		if err == nil {
 			atomic.AddUint64(&d.lv0Used, ^(used - 1))
@@ -373,7 +378,16 @@ func (d *Database) doTrans() {
 }
 
 func (d *Database) Seal() error {
-	panic("implement me")
+
+	state, ok := d.SetState(zmatrixpb.DBState_DB_Sealed)
+	if !ok {
+		return nil
+	}
+	if state != zmatrixpb.DBState_DB_Sealed {
+		return nil
+	}
+
+	go d.doTrans()
 }
 
 func (d *Database) Migrate(dst *db.KVer) error {
