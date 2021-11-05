@@ -203,8 +203,12 @@ func (c *Client) Stop(err error) {
 
 func (c *Client) Set(db uint32, key, value []byte) error {
 
+	if len(key) > config2.MaxKeyLen {
+		return xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+	}
+
 	if len(value) > config2.MaxValueLen {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too big value")
+		return xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
 	}
 
 	_, _, err := c.call(db, setMethod, key, value)
@@ -213,9 +217,12 @@ func (c *Client) Set(db uint32, key, value []byte) error {
 
 func (c *Client) SetBatch(db uint32, keys, values [][]byte) error {
 
-	for _, value := range values {
+	for i, value := range values {
+		if len(keys[i]) > config2.MaxKeyLen {
+			return xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+		}
 		if len(value) > config2.MaxValueLen {
-			return xerrors.WithMessage(orpc.ErrBadRequest, "too big value")
+			return xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
 		}
 	}
 
