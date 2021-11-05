@@ -388,6 +388,7 @@ func (d *Database) Seal() error {
 	}
 
 	go d.doTrans()
+	return nil
 }
 
 func (d *Database) Migrate(dst *db.KVer) error {
