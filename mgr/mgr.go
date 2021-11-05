@@ -376,7 +376,6 @@ func (m *Mgr) Close() {
 		}
 		boot := m.getDBBoot(uint32(i))
 		if boot != nil {
-			_ = boot.Flush()
 			_ = boot.Close
 		}
 	}
