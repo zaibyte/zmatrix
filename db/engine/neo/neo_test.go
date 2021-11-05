@@ -124,3 +124,121 @@ func TestDatabase_Get(t *testing.T) {
 	wg.Wait()
 
 }
+
+// 1. in transferring
+// 2. after transferring
+func TestDatabase_GetWithTrans(t *testing.T) {
+	fs := testFS
+
+	dbPath := filepath.Join(os.TempDir(), "neo.lv1", fmt.Sprintf("%d", xrand.Uint32()))
+
+	err := fs.MkdirAll(dbPath, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.RemoveAll(dbPath)
+
+	cnt := 128
+
+	cfg := DefaultConfig
+	cfg.ToLv1MaxEntries = uint64(cnt)
+
+	d, err := Create(cfg, 0, dbPath, fs, &xio.NopScheduler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kLen := 8 // fixed key length helping to accelerate testing, and the lengths of values are enough random.
+	keyBuf := make([]byte, kLen)
+	valBuf := make([]byte, config.MaxValueLen)
+
+	rand.Seed(time.Now().UnixNano())
+	rand.Read(valBuf) // We don't need too many value.
+
+	kvs := make(map[uint64]uint32)
+
+	for i := 0; i < cnt; i++ {
+
+		binary.BigEndian.PutUint64(keyBuf, uint64(1024-i))
+
+		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
+		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
+
+		err = d.Set(keyBuf[:kLen], valBuf[:vLen])
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		kvs[uint64(1024-i)] = vLen
+	}
+
+	kvs[uint64(1024-cnt)] = 1111 // fixed last element.
+
+	wg2 := new(sync.WaitGroup)
+	wg2.Add(2)
+
+	go func() { // Trigger trans.
+		defer wg2.Done()
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(1024-cnt))
+
+		err = d.Set(key, valBuf[:1111])
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+
+	go func() {
+		defer wg2.Done()
+		key := make([]byte, 8)
+
+		for {
+			if !d.transUndone() {
+				continue
+			}
+
+			// Trans has begun.
+
+			for k, v := range kvs {
+				binary.BigEndian.PutUint64(key, k)
+				vact, closer, err := d.Get(key)
+				if err != nil {
+					t.Error(err)
+				}
+
+				assert.Equal(t, valBuf[:v], vact)
+
+				_ = closer.Close()
+			}
+			break
+		}
+
+		for {
+			if d.transUndone() {
+				continue
+			}
+
+			// Trans has done.
+			for k, v := range kvs {
+				binary.BigEndian.PutUint64(key, k)
+				vact, closer, err := d.Get(key)
+				if err != nil {
+					t.Error(err)
+				}
+
+				assert.Equal(t, valBuf[:v], vact)
+
+				_ = closer.Close()
+			}
+			break
+		}
+
+	}()
+
+	wg2.Wait()
+
+}

@@ -322,8 +322,8 @@ func (d *Database) setCheck() (setOK, needTran bool, err error) {
 
 func (d *Database) needTrans() bool {
 
-	if atomic.LoadUint64(&d.lv0Used) > uint64(d.cfg.ToLv1Threshold) ||
-		atomic.LoadUint64(&d.lv0DirtyCnt) > d.cfg.ToLv1MaxEntries {
+	if atomic.LoadUint64(&d.lv0Used) >= uint64(d.cfg.ToLv1Threshold) ||
+		atomic.LoadUint64(&d.lv0DirtyCnt) >= d.cfg.ToLv1MaxEntries {
 		return true
 	}
 	return false
@@ -350,6 +350,7 @@ func (d *Database) doTrans() {
 			atomic.AddUint64(&d.lv0Used, ^(used - 1))
 			atomic.AddUint64(&d.lv0DirtyCnt, ^(dirty - 1))
 			atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
+
 		} else {
 			if errors.Is(err, zmerrors.ErrDatabaseFull) {
 				d.SetState(zmatrixpb.DBState_DB_Sealed)
