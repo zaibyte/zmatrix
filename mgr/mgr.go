@@ -74,6 +74,16 @@ func (m *Mgr) remove(id uint32) {
 	m.setDB(id, nil)
 }
 
+func (m *Mgr) getDBBoot(id uint32) *db.Boot {
+
+	p := atomic.LoadPointer(&m.dbBoots[id])
+	if p == nil {
+		return nil
+	}
+
+	return (*db.Boot)(p)
+}
+
 func New(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Mgr, err error) {
 
 	cfg.Adjust()
@@ -258,7 +268,7 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 		return nil, err
 	}
 
-	d, err = neo.Create(dbDir, fs, sched)
+	d, err = neo.Create(&m.cfg.NeoConfig, dbID, dbDir, fs, sched)
 	if err != nil {
 		return nil, err
 	}
@@ -351,24 +361,29 @@ func (m *Mgr) PickDisk() (diskPath string, err error) {
 func (m *Mgr) Close() {
 
 	if !atomic.CompareAndSwapInt64(&m.isServing, 1, 0) {
-		// keeper is already closed
+		// mgr is already closed
 		return
 	}
 
-	xlog.Info("closing keeper")
+	xlog.Info("closing mgr")
 
 	m.stopBgLoops()
 
-	for i := 0; i < MaxDBNum; i++ {
+	for i := 0; i < config2.MaxDBNum; i++ {
 		d := m.getDB(uint32(i))
 		if d != nil {
 			_ = d.db.Close()
+		}
+		boot := m.getDBBoot(uint32(i))
+		if boot != nil {
+			_ = boot.Flush()
+			_ = boot.Close
 		}
 	}
 
 	m.disks.CloseSched()
 
-	xlog.Info("keeper is closed")
+	xlog.Info("zmatrix mgr is closed")
 }
 
 func (m *Mgr) stopBgLoops() {
