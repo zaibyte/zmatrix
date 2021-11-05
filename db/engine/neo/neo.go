@@ -184,11 +184,6 @@ func (d *Database) Remove() error {
 
 	d.SetState(zmatrixpb.DBState_DB_Removed)
 
-	err = d.fs.RemoveAll(d.path)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
