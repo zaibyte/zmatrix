@@ -74,14 +74,14 @@ func (m *Mgr) remove(id uint32) {
 	m.setDB(id, nil)
 }
 
-func (m *Mgr) getDBBoot(id uint32) *db.Boot {
+func (m *Mgr) getDBBoot(id uint32) *DBBoot {
 
 	p := atomic.LoadPointer(&m.dbBoots[id])
 	if p == nil {
 		return nil
 	}
 
-	return (*db.Boot)(p)
+	return (*DBBoot)(p)
 }
 
 func New(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Mgr, err error) {
@@ -94,6 +94,7 @@ func New(ctx context.Context, fs vfs.FS, vdsisk vdisk.Disk, cfg *Config) (k *Mgr
 	k.ctx, k.cancel = context.WithCancel(ctx)
 
 	k.dbs = make([]unsafe.Pointer, config2.MaxDBNum)
+	k.dbBoots = make([]unsafe.Pointer, config2.MaxDBNum)
 	k.wg = new(sync.WaitGroup)
 
 	k.fs = fs
@@ -162,7 +163,9 @@ func (m *Mgr) Start() error {
 
 			_ = boot.Flush() // Don't care the result here.
 
-			atomic.StorePointer(&m.dbBoots[i], unsafe.Pointer(boot))
+			dbb := new(DBBoot)
+			dbb.Boot = boot
+			atomic.StorePointer(&m.dbBoots[i], unsafe.Pointer(dbb))
 		}
 	}
 
@@ -202,8 +205,11 @@ func (m *Mgr) updateStateLoop() {
 				if p == nil {
 					continue
 				}
-				(*db.Boot)(p).SetState(s)
-				_ = (*db.Boot)(p).Flush()
+				boot := (*DBBoot)(p)
+				boot.Boot.SetState(s)
+				boot.Lock()
+				_ = boot.Boot.Flush()
+				boot.Unlock()
 			}
 
 		case <-m.ctx.Done():
@@ -376,7 +382,9 @@ func (m *Mgr) Close() {
 		}
 		boot := m.getDBBoot(uint32(i))
 		if boot != nil {
-			_ = boot.Close
+			boot.Lock()
+			boot.Boot.Close()
+			boot.Unlock()
 		}
 	}
 
