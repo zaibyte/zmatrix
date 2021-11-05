@@ -43,7 +43,7 @@ type Database struct {
 	state int32
 	// volatile data, count bytes in lvl0 roughly for triggering flushing job to lvl1.
 	// After flushing, should minus bytes flushed.
-	lv0Used     uint64
+	lv0Used     uint64 // In present, count key+value.
 	lv0DirtyCnt uint64
 
 	fs    vfs.FS
@@ -183,7 +183,12 @@ func (d *Database) Set(key, value []byte) error {
 		}
 	}()
 
-	return d.lv0.set(key, value)
+	err = d.lv0.set(key, value)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
