@@ -240,15 +240,21 @@ func (c *Client) SetBatch(db uint32, keys, values [][]byte) error {
 
 func (c *Client) Get(db uint32, key []byte) ([]byte, io.Closer, error) {
 
+	if len(key) > config2.MaxKeyLen {
+		return nil, nil, xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+	}
+
 	return c.call(db, getMethod, key, nil)
 }
 
 func (c *Client) Remove(db uint32) error {
+
 	_, _, err := c.call(db, removeMethod, nil, nil)
 	return err
 }
 
 func (c *Client) Seal(db uint32) error {
+
 	_, _, err := c.call(db, sealMethod, nil, nil)
 	return err
 }
@@ -260,6 +266,10 @@ func (c *Client) Seal(db uint32) error {
 //
 // Don't forget starting the client with Client.Start() before calling Client.call().
 func (c *Client) call(db uint32, method uint8, key, value []byte) ([]byte, io.Closer, error) {
+
+	if db > config2.MaxDBNum {
+		return nil, nil, xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+	}
 
 	if atomic.LoadInt64(&c.isRunning) != 1 {
 		return nil, nil, orpc.ErrServiceClosed
