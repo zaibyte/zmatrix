@@ -5,15 +5,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
-
-	"g.tesamc.com/IT/zmatrix/mgr"
-
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
-
 	"g.tesamc.com/IT/zaipkg/vdisk"
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xlog"
+	"g.tesamc.com/IT/zmatrix/mgr"
+	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
+	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
 	"g.tesamc.com/IT/zmatrix/server/config"
 )
 
@@ -24,12 +21,10 @@ type Server struct {
 
 	cfg *config.Config
 
-	instanceID string
-
 	fs    vfs.FS
 	vdisk vdisk.Disk
 
-	rpcSvr xrpc.Server // zMatrix server.
+	rpcSvr xrpc.Server // zMatrix rpc server.
 
 	mgr mgr.IMgr
 
@@ -39,13 +34,12 @@ type Server struct {
 	stopWg *sync.WaitGroup
 }
 
-// Create creates a ZBuf server.
+// Create creates a zMatrix server.
 func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 
 	cfg.Adjust()
 
 	s := &Server{fs: vfs.GetFS(), vdisk: vdisk.GetDisk()} // Set default FS & Disk at the beginning.
-	s.instanceID = cfg.App.InstanceID
 	s.cfg = cfg
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.stopWg = new(sync.WaitGroup)
@@ -68,25 +62,19 @@ func (s *Server) Run() error {
 		return nil
 	}
 
-	s.zBufDisks.Init(s.fs)
-	s.zBufDisks.StartSched()
+	err := s.mgr.Start()
+	if err != nil {
+		return err
+	}
 
-	// s.listAndLoadExts()
-	//
-	// err := s.rpcSvr.Start()
-	// if err != nil {
-	// 	return err
-	// }
-	// s.httpSvr.Start()
-	//
-	// s.state = metapb.ZBufState_ZBuf_Up // set up before heartbeat. heartbeat may change state.
-	//
-	// s.startBgLoops()
-	//
-	// xlog.Info("server is running")
-	//
-	// s.sendZBufHeartbeat()
-	// s.sendExtsHeartbeat()
+	err = s.rpcSvr.Start()
+	if err != nil {
+		return err
+	}
+
+	s.startBgLoops()
+
+	xlog.Info("server is running")
 
 	return nil
 }
@@ -97,9 +85,6 @@ func (s *Server) isClosed() bool {
 
 // startBgLoops starts Server background jobs which running in loops.
 func (s *Server) startBgLoops() {
-	s.stopWg.Add(2)
-
-	go s.zBufDisks.DetectLoop()
 }
 
 // stopBgLoops stops Server background jobs, blocking until all exited.
@@ -117,19 +102,10 @@ func (s *Server) Close() {
 
 	xlog.Info("closing server")
 
-	// s.rpcSvr.Stop()
-	// s.httpSvr.Close()
-	// s.zc.Close(nil)
-	//
-	// s.stopBgLoops()
-	//
-	// s.exts.Range(func(key, value interface{}) bool {
-	// 	ext := value.(extent.Extenter)
-	// 	ext.Close()
-	// 	return true
-	// })
+	s.rpcSvr.Stop(nil)
 
-	s.zBufDisks.CloseSched()
+	s.mgr.Close()
+	s.stopBgLoops()
 
 	xlog.Info("server is closed")
 }
