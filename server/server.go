@@ -5,12 +5,13 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
+
 	"g.tesamc.com/IT/zmatrix/mgr"
 
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
 
 	"g.tesamc.com/IT/zaipkg/vdisk"
-	sdisk "g.tesamc.com/IT/zaipkg/vdisk/svr"
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xlog"
 	"g.tesamc.com/IT/zmatrix/server/config"
@@ -25,16 +26,12 @@ type Server struct {
 
 	instanceID string
 
-	availLvl1Engine []uint32
-
 	fs    vfs.FS
 	vdisk vdisk.Disk
 
 	rpcSvr xrpc.Server // zMatrix server.
 
 	mgr mgr.IMgr
-
-	zBufDisks *sdisk.ZBufDisks
 
 	ctx    context.Context
 	cancel func()
@@ -51,37 +48,15 @@ func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 	s.instanceID = cfg.App.InstanceID
 	s.cfg = cfg
 	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.stopWg = new(sync.WaitGroup)
 
-	// s.rpcSvr = urpc.NewServer(cfg.ObjSrvAddr, s)
-	//
-	// s.httpSvr = xhttp.NewServer(&xhttp.ServerConfig{
-	// 	Address: cfg.App.ServerAddr,
-	// })
-	// // Add prometheus metrics handler.
-	// s.httpSvr.AddHandler(http.MethodGet, "/v1/metrics", func(w http.ResponseWriter, req *http.Request, params httprouter.Params) {
-	// 	metrics.WritePrometheus(w, false)
-	// })
-	//
-	// zc, err := zai.NewProClient(&s.cfg.ZaiConfig)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// s.zc = zc
-	//
-	// s.fs = vfs.GetFS()
-	// s.vdisk = vdisk.GetDisk()
-	//
-	// s.availLvl1Engine = []uint32{uint32(settings.ExtV1)}
-	//
-	// s.stopWg = new(sync.WaitGroup)
-	//
-	// s.zBufDisks = sdisk.NewZBufDisks(ctx, s.stopWg, s.fs, s.vdisk, s.cfg.App.InstanceID,
-	// 	s.cfg.DataRoot, &s.cfg.Scheduler)
-	//
-	// s.creators = map[uint16]extent.Creator{
-	// 	extent.Version1: v1.NewCreator(&s.cfg.ExtV1Config, s.zBufDisks, s.fs, s.zc),
-	// 	extent.Version2: &v2.Creator{v1.NewCreator(&s.cfg.ExtV2Config, s.zBufDisks, s.fs, s.zc)},
-	// }
+	s.rpcSvr = urpc.NewServer(cfg.ServerAddr, s)
+
+	var err error
+	s.mgr, err = mgr.New(s.ctx, s.fs, s.vdisk, &s.cfg.Manager)
+	if err != nil {
+		return nil, err
+	}
 
 	return s, nil
 }
