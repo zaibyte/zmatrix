@@ -149,6 +149,8 @@ func (m *Mgr) Start() error {
 					xlog.Warn(err.Error())
 					d, _ = neo.CreateBroken(uint32(i), dbDir)
 					isBroken = true
+				} else {
+					_ = d.Start() // Neo start will always be succeeded.
 				}
 			}
 
