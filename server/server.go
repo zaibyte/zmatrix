@@ -13,7 +13,6 @@ import (
 	sdisk "g.tesamc.com/IT/zaipkg/vdisk/svr"
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zaipkg/xnet/xhttp"
 	"g.tesamc.com/IT/zmatrix/server/config"
 )
 
@@ -31,8 +30,7 @@ type Server struct {
 	fs    vfs.FS
 	vdisk vdisk.Disk
 
-	mSvr    *xrpc.Server  // zMatrix server.
-	httpSvr *xhttp.Server // Operator server using HTTP protocol.
+	rpcSvr xrpc.Server // zMatrix server.
 
 	mgr mgr.IMgr
 
@@ -54,7 +52,7 @@ func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 	s.cfg = cfg
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
-	// s.mSvr = urpc.NewServer(cfg.ObjSrvAddr, s)
+	// s.rpcSvr = urpc.NewServer(cfg.ObjSrvAddr, s)
 	//
 	// s.httpSvr = xhttp.NewServer(&xhttp.ServerConfig{
 	// 	Address: cfg.App.ServerAddr,
@@ -100,7 +98,7 @@ func (s *Server) Run() error {
 
 	// s.listAndLoadExts()
 	//
-	// err := s.mSvr.Start()
+	// err := s.rpcSvr.Start()
 	// if err != nil {
 	// 	return err
 	// }
@@ -144,7 +142,7 @@ func (s *Server) Close() {
 
 	xlog.Info("closing server")
 
-	// s.mSvr.Stop()
+	// s.rpcSvr.Stop()
 	// s.httpSvr.Close()
 	// s.zc.Close(nil)
 	//
