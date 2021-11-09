@@ -6,11 +6,7 @@ import (
 
 // Client is the xRPC client.
 type Client interface {
-	Set(db uint32, key, value []byte) error
-	Get(db uint32, key []byte) ([]byte, io.Closer, error)
-	SetBatch(db uint32, keys, values [][]byte) error
-	Remove(db uint32) error
-	Seal(db uint32) error
+	ServerHandler
 	StartStopper
 }
 

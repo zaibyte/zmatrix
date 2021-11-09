@@ -57,6 +57,14 @@ func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) Start() error {
+	return s.Run()
+}
+
+func (s *Server) Stop(err error) {
+	s.Close()
+}
+
 func (s *Server) Run() error {
 
 	if !atomic.CompareAndSwapInt64(&s.isServing, 0, 1) {
