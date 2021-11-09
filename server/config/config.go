@@ -14,6 +14,9 @@ type Config struct {
 
 	Manager mgr.Config `toml:"manager"`
 
+	// Embed is true, RPC will be disabled.
+	Embed bool `toml:"embed"`
+
 	// Development mode, for testing.
 	Development bool `toml:"development"`
 }

@@ -44,7 +44,9 @@ func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.stopWg = new(sync.WaitGroup)
 
-	s.rpcSvr = urpc.NewServer(cfg.ServerAddr, s)
+	if !s.cfg.Embed {
+		s.rpcSvr = urpc.NewServer(cfg.ServerAddr, s)
+	}
 
 	var err error
 	s.mgr, err = mgr.New(s.ctx, s.fs, s.vdisk, &s.cfg.Manager)
@@ -67,9 +69,11 @@ func (s *Server) Run() error {
 		return err
 	}
 
-	err = s.rpcSvr.Start()
-	if err != nil {
-		return err
+	if !s.cfg.Embed {
+		err = s.rpcSvr.Start()
+		if err != nil {
+			return err
+		}
 	}
 
 	s.startBgLoops()
@@ -102,7 +106,9 @@ func (s *Server) Close() {
 
 	xlog.Info("closing server")
 
-	s.rpcSvr.Stop(nil)
+	if !s.cfg.Embed {
+		s.rpcSvr.Stop(nil)
+	}
 
 	s.mgr.Close()
 	s.stopBgLoops()
