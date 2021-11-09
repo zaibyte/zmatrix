@@ -1,23 +1,24 @@
 package zmperf
 
-import "g.tesamc.com/IT/zaipkg/typeutil"
+import (
+	"g.tesamc.com/IT/zaipkg/config"
+	"g.tesamc.com/IT/zaipkg/typeutil"
+)
 
 type Config struct {
 	DataRoot string `toml:"data_root"`
 
+	// If ValSize > 512KB, set it to default.
 	ValSize typeutil.ByteSize `toml:"val_size"`
 	// TODO add various engine supports
 	JobType string `toml:"job_type"`
-	Embed   bool   `toml:"embed"`
-	RPC     bool   `toml:"rpc"`
-	JobTime int64  `toml:"job_time"` // sec
+	jobType int
+	JobTime int64 `toml:"job_time"` // sec
 	// Ignore first SkipTime when collect result.
 	SkipTime int64 `toml:"skip_time"`
 
 	// MBPer_XXX_Thread * threads = total_IO.
-	MBPerPutThread int `toml:"mb_per_put_thread"`
 	MBPerGetThread int `toml:"mb_per_get_thread"`
-	PutThreads     int `toml:"put_threads"`
 	GetThreads     int `toml:"get_threads"`
 
 	// Scheduler configs.
@@ -25,7 +26,10 @@ type Config struct {
 
 	// IsDoNothing will do nothing at all when there should be a I/O request.
 	// It's used for measuring the zMatrix works as expect.
-	IsDoNothing bool `toml:"is_do_nothing"`
+	IsDoNothing bool `toSml:"is_do_nothing"`
+
+	// When JobType is rpc, pls start zMatrix in another process with ServerAddr.
+	ServerAddr string `toml:"server_addr"`
 
 	// PrintLog prints log to stdout or not.
 	PrintLog bool `toml:"print_log"`
@@ -41,4 +45,16 @@ const (
 	Embed = 2
 )
 
-const DefaultValSize = typeutil.ByteSize(900)
+const DefaultValSize = typeutil.ByteSize(900) // Not aligned, so what? :D
+
+func (c *Config) adjust() {
+
+	if c.ValSize > 512*1024 {
+		c.ValSize = 0
+	}
+
+	config.Adjust(&c.ValSize, DefaultValSize)
+	config.Adjust(&c.JobType, "embed")
+	config.Adjust(&c.JobTime, 300)
+	config.Adjust(&c.SkipTime, 10)
+}
