@@ -29,8 +29,7 @@ type Runner struct {
 
 	getLat *hdrhistogram.Histogram
 
-	getJobers  []*jober
-	getJobDone int64
+	getJobers []*jober
 
 	getOK     int64
 	getFailed int64
