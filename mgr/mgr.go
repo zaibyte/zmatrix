@@ -74,6 +74,13 @@ func (m *Mgr) remove(id uint32) {
 	m.setDB(id, nil)
 }
 
+func (m *Mgr) setDBBoot(id uint32, boot *db.Boot) {
+
+	dbb := new(DBBoot)
+	dbb.Boot = boot
+	atomic.StorePointer(&m.dbBoots[id], unsafe.Pointer(dbb))
+}
+
 func (m *Mgr) getDBBoot(id uint32) *DBBoot {
 
 	p := atomic.LoadPointer(&m.dbBoots[id])
@@ -283,6 +290,11 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 		return nil, err
 	}
 
+	boot, err := db.CreateDBBoot(fs, db.MakeBootPath(dbDir), dbID, zmatrixpb.DBEngine_DB_Engine_Neo)
+	if err != nil {
+		return nil, err
+	}
+
 	d, err = neo.Create(&m.cfg.NeoConfig, dbID, dbDir, fs, sched)
 	if err != nil {
 		return nil, err
@@ -297,6 +309,8 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 		db:  d,
 		dir: dbDir,
 	})
+
+	m.setDBBoot(dbID, boot)
 
 	return
 }
