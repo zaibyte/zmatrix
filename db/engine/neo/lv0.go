@@ -43,6 +43,7 @@ func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate, isSealed bool) (*lv0, e
 		Logger:       xlog.GetGRPCLoggerV2(),
 		MemTableSize: defaultMemTableSize,
 		ReadOnly:     isSealed,
+		Levels:       []pebble.LevelOptions{pebble.LevelOptions{TargetFileSize: defaultMemTableSize}},
 	})
 	if err != nil {
 		return nil, err
