@@ -263,6 +263,39 @@ func (l *lv1) loadSeg(ids string, buf []byte) error {
 	return nil
 }
 
+func (l *lv1) has(key []byte) bool {
+	ids, ok := l.searchSeg(key)
+	if !ok {
+		return false
+	}
+
+	for _, id := range ids {
+		segF, idx, ok := l.getSeg(id)
+		if ok { // Ensure there is no memory order issues.
+			o, found := idx.SlimTrie.RangeGet(xstrconv.ToString(key))
+			if !found {
+				continue
+			}
+			offset := o.(int64)
+
+			buf := xbytes.GetAlignedBytes(lv1BlockAlignSize)
+			_, err := segF.ReadAt(buf, offset)
+			if err != nil {
+				xbytes.PutAlignedBytes(buf)
+				continue
+			}
+
+			_, _, ok := searchInBlock(buf, key)
+			if !ok {
+				continue
+			} else {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // search key's value if existed.
 func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 
@@ -499,13 +532,14 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 	sizes := make([]uint32, 0, lv1BlockMaxItems)
 	itemsIdxInBlock := make([]int, 0, lv1BlockMaxItems)
 
+	existed := 0
 	for i, item := range items {
 
-		wa := xbytes.AlignSize(int64(itemOff), directio.BlockSize)
-
-		if wa >= lv1BlockMinSize || itemsInBlock == 8 {
+		if itemOff >= lv1BlockMinSize || itemsInBlock == 8 {
 
 			makeLv1MinBlock(buf, itemsInBlock, hs, offs, sizes)
+
+			wa := xbytes.AlignSize(int64(itemOff), lv1BlockAlignSize)
 
 			err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:wa])
 			if err != nil {
@@ -527,6 +561,12 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 		}
 
 		kbs := xstrconv.ToBytes(item.Key)
+
+		if l.has(kbs) {
+			existed++
+			continue
+		}
+
 		val, closer, err := snap.Get(kbs)
 		if err != nil {
 			return 0, nil, "", "", err
@@ -547,6 +587,8 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 		_ = closer.Close()
 	}
 
+	segFSize := offset
+
 	if itemsInBlock != 0 { // if there is un-flushed in buf
 		wa := xbytes.AlignSize(int64(itemOff), lv1BlockAlignSize) // min block is lv1BlockAlignSize.
 		makeLv1MinBlock(buf, itemsInBlock, hs, offs, sizes)
@@ -559,7 +601,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 		for _, iii := range itemsIdxInBlock {
 			items[iii].Offset = offset
 		}
-
+		segFSize += wa
 	}
 
 	idx, err = index.NewSlimIndex(items, nil)
@@ -568,6 +610,9 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 	}
 
 	l.addSeg(id, segF)
+
+	xlog.Infof("persist seg file done for seg_id: %d with %d items in %.2fMB",
+		id, len(items)-existed, float64(segFSize)/float64(1024*1024))
 
 	return id, idx, items[0].Key, items[len(items)-1].Key, nil
 }
@@ -621,26 +666,20 @@ func (l *lv1) persistIdx(id int64, idx *index.SlimIndex, min, max []byte) error 
 		return err
 	}
 
-	buf := xbytes.GetAlignedBytes(segBufSize)
-	defer xbytes.PutBytes(buf)
+	buf := directio.AlignedBlock(int(xbytes.AlignSize(int64(len(idxBytes)+segIdxHeaderSize), 4096)))
 
 	makeSegIdxHeader(segIdxVersion1, xxhash.Sum64(idxBytes), uint64(len(idxBytes)), min, max, buf)
-	undone := copy(buf[segIdxHeaderSize:], idxBytes)
-	done, off := 0, int64(0)
-	for done < len(idxBytes) {
+	copy(buf[segIdxHeaderSize:], idxBytes)
 
-		err = l.sched.DoSync(xio.ReqChunkWrite, f, off, buf)
-		if err != nil {
-			return err
-		}
-
-		done += undone
-
-		undone = copy(buf, idxBytes[done:])
-		off += segBufSize
+	err = l.sched.DoSync(xio.ReqChunkWrite, f, 0, buf)
+	if err != nil {
+		return err
 	}
 
 	l.addSegIdxRange(id, idx, min, max)
+
+	xlog.Infof("persist seg idx done for seg_id: %d in %.2fMB",
+		id, float64(len(buf))/float64(1024*1024))
 
 	return nil
 }
