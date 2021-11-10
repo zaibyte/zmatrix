@@ -115,13 +115,13 @@ func (r *Runner) Run() (err error) {
 
 	log.Println("start to prepare read")
 	prepareStart := tsc.UnixNano()
-	r.prepareRead()
+	setCost := r.prepareRead()
 	prepareCost := tsc.UnixNano() - prepareStart
-	prepareCostSec := float64(prepareCost) / float64(time.Second)
+	setCostSec := float64(setCost) / float64(time.Second)
 	prepareCnt := r.keyMax + 1
 
 	log.Printf("prepare read done with batch set (512KB each batch), cost: %.2fs for %d items (8B key + %dB value), QPS: %.2f\n",
-		prepareCostSec, prepareCnt, r.cfg.ValSize, float64(prepareCnt)/prepareCostSec)
+		setCostSec, prepareCnt, r.cfg.ValSize, float64(prepareCnt)/setCostSec)
 
 	atomic.AddInt64(&r.stopTS, prepareCost)
 

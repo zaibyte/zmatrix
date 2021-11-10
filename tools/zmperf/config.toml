@@ -7,8 +7,8 @@ job_type = "embed"
 job_time = 200
 skip_time = 10
 
-mb_per_get_thread = 1024
-get_threads = 64
+mb_per_get_thread = 10240
+get_threads = 64    # 1, 16, 64
 
 io_threads = 32
 

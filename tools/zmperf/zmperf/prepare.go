@@ -2,8 +2,12 @@ package zmperf
 
 import (
 	"encoding/binary"
+	"errors"
 	"log"
 	"math/rand"
+	"time"
+
+	"g.tesamc.com/IT/zaipkg/orpc"
 
 	"github.com/templexxx/tsc"
 )
@@ -18,7 +22,7 @@ func randFillVal(n int64) {
 }
 
 // prepareRead using batch set for speeding up.
-func (r *Runner) prepareRead() {
+func (r *Runner) prepareRead() (setCost int64) {
 
 	MBs := r.cfg.MBPerGetThread
 	cntInThread := MBs * 1024 * 1024 / int(r.cfg.ValSize)
@@ -40,16 +44,40 @@ func (r *Runner) prepareRead() {
 		copy(vals[i], testVal)
 	}
 
+	start := time.Now().UnixNano()
 	key := uint32(0)
 	for j := 0; j < k; k++ {
 		for i := range keys {
 			binary.BigEndian.PutUint64(keys[i], uint64(key))
 			key++
 		}
-		err := r.client.SetBatch(0, keys, vals)
-		if err != nil {
-			log.Fatal("prepare objects failed", err)
+
+		for {
+			err := r.client.SetBatch(0, keys, vals)
+			if err != nil {
+				if errors.Is(err, orpc.ErrTooManyRequests) {
+					time.Sleep(3 * time.Second) // Sleep for a while for transferring.
+					err = nil
+					continue
+				} else {
+					log.Fatal("prepare items failed", err)
+				}
+			}
+
+			if err == nil {
+				break
+			}
 		}
 	}
+	setCost = time.Now().UnixNano() - start
 
+	time.Sleep(10 * time.Second) // Waiting for potential transferring before seal.
+
+	err := r.client.Seal(0)
+	if err != nil {
+		log.Fatal("seal database failed", err)
+	}
+
+	time.Sleep(10 * time.Second) // Waiting for potential transferring done.
+	return
 }
