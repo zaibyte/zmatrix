@@ -38,7 +38,7 @@ func TestCreateStartLv0(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ll, err := loadLv0(dbPath, fs)
+	ll, err := loadLv0(dbPath, fs, false)
 	if err != nil {
 		t.Fatal(err)
 	}

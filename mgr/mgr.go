@@ -138,12 +138,13 @@ func (m *Mgr) Start() error {
 
 			var d db.DB
 			isBroken := false
+			isSealed := boot.DB.State == zmatrixpb.DBState_DB_Sealed
 			if boot.DB.State == zmatrixpb.DBState_DB_Broken ||
 				boot.DB.State == zmatrixpb.DBState_DB_Removed { // Actually removed database shouldn't be shown here, so regard it broken.
 				d, _ = neo.CreateBroken(uint32(i), dbDir)
 				isBroken = true
 			} else {
-				d, err = neo.Load(&m.cfg.NeoConfig, uint32(i), dbDir, m.fs, sched)
+				d, err = neo.Load(&m.cfg.NeoConfig, uint32(i), dbDir, m.fs, sched, isSealed)
 				if err != nil {
 					err = xerrors.WithMessagef(err, "failed to load database: %d", i)
 					xlog.Warn(err.Error())
@@ -283,6 +284,11 @@ func (m *Mgr) CreateDB(dbID uint32, diskPath string, engine zmatrixpb.DBEngine) 
 	}
 
 	d, err = neo.Create(&m.cfg.NeoConfig, dbID, dbDir, fs, sched)
+	if err != nil {
+		return nil, err
+	}
+
+	err = d.Start()
 	if err != nil {
 		return nil, err
 	}

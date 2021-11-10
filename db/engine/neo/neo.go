@@ -104,7 +104,7 @@ func Create(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler)
 // In Load process, we maybe just failed in last transfer job which means the next transfer job
 // may twice bigger than we expect, it's okay.
 // lv1 could hold that big segment.
-func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (*Database, error) {
+func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler, isSealed bool) (*Database, error) {
 
 	if cfg == nil {
 		cfg = DefaultConfig
@@ -112,17 +112,22 @@ func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler) (
 
 	cfg.Adjust()
 
+	state := int32(zmatrixpb.DBState_DB_ReadWrite)
+	if isSealed {
+		state = int32(zmatrixpb.DBState_DB_Sealed)
+	}
+
 	d := &Database{
 		cfg:   cfg,
 		id:    id,
-		state: int32(zmatrixpb.DBState_DB_ReadWrite),
+		state: state,
 		fs:    fs,
 		sched: sched,
 		path:  path,
 	}
 
 	var err error
-	d.lv0, err = loadLv0(path, fs)
+	d.lv0, err = loadLv0(path, fs, isSealed)
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +369,7 @@ func (d *Database) doTrans() {
 				atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
 				return
 			} else {
+				xlog.Errorf("database(neo): %d is broken: %s", d.id, err.Error())
 				d.SetState(zmatrixpb.DBState_DB_Broken)
 				return
 			}

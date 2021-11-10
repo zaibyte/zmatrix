@@ -311,7 +311,7 @@ func TestDatabase_Load(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ld, err := Load(nil, 0, dbPath, fs, &xio.NopScheduler{})
+	ld, err := Load(nil, 0, dbPath, fs, &xio.NopScheduler{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func TestDatabase_LoadAfterTrans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ld, err := Load(nil, 0, dbPath, fs, &xio.NopScheduler{})
+	ld, err := Load(nil, 0, dbPath, fs, &xio.NopScheduler{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
