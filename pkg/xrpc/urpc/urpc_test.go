@@ -53,6 +53,8 @@ import (
 	"sync"
 	"testing"
 
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+
 	"github.com/stretchr/testify/assert"
 
 	"g.tesamc.com/IT/zaipkg/directio"
@@ -79,6 +81,7 @@ type testHandler struct {
 	setBatchFn func(db uint32, keys, values [][]byte) error
 	removeFn   func(db uint32) error
 	sealFn     func(db uint32) error
+	getState   func(db uint32) (zmatrixpb.DBState, error)
 }
 
 func (h *testHandler) Set(db uint32, key, value []byte) error {
@@ -99,6 +102,10 @@ func (h *testHandler) Remove(db uint32) error {
 
 func (h *testHandler) Seal(db uint32) error {
 	return h.sealFn(db)
+}
+
+func (h *testHandler) GetState(db uint32) (zmatrixpb.DBState, error) {
+	return h.getState(db)
 }
 
 func nopHandler() *testHandler {

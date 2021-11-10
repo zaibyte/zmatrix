@@ -40,6 +40,7 @@
 package urpc
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -400,6 +401,14 @@ func (s *Server) callHandlerWithRecover(method uint8, dbID uint32, reqKey, reqVa
 	case sealMethod:
 		err = s.Handler.Seal(dbID)
 		return nil, nil, err
+	case getStateMethod:
+		state, err := s.Handler.GetState(dbID)
+		if err != nil {
+			return nil, nil, err
+		}
+		resp = xbytes.GetBytes(4)
+		binary.LittleEndian.PutUint32(resp, uint32(state))
+		return resp, xbytes.PoolBytesCloser{P: resp}, nil
 	default:
 		return nil, nil, orpc.ErrNotImplemented
 	}

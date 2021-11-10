@@ -41,6 +41,7 @@ const (
 	setBatchMethod uint8 = 3
 	removeMethod   uint8 = 4
 	sealMethod     uint8 = 5
+	getStateMethod uint8 = 6
 )
 
 type header interface {

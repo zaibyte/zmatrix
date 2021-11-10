@@ -40,12 +40,15 @@
 package urpc
 
 import (
+	"encoding/binary"
 	"io"
 	"net"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 
 	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
 
@@ -257,6 +260,17 @@ func (c *Client) Seal(db uint32) error {
 
 	_, _, err := c.call(db, sealMethod, nil, nil)
 	return err
+}
+
+func (c *Client) GetState(db uint32) (zmatrixpb.DBState, error) {
+
+	v, closer, err := c.call(db, getStateMethod, nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer closer.Close()
+	state := binary.LittleEndian.Uint32(v)
+	return zmatrixpb.DBState(state), nil
 }
 
 // call sends the given request to the server and obtains response

@@ -2,6 +2,8 @@ package xrpc
 
 import (
 	"io"
+
+	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 )
 
 // Client is the xRPC client.
@@ -32,4 +34,5 @@ type ServerHandler interface {
 	Remove(db uint32) error
 	// Seal seals database.
 	Seal(db uint32) error
+	GetState(db uint32) (zmatrixpb.DBState, error)
 }

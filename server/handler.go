@@ -115,3 +115,15 @@ func (s *Server) Seal(db uint32) error {
 	}
 	return d.Seal()
 }
+
+func (s *Server) GetState(db uint32) (zmatrixpb.DBState, error) {
+	if db > config2.MaxDBNum {
+		return 0, xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+	}
+
+	d, err := s.mgr.GetDB(db)
+	if err != nil {
+		return 0, err
+	}
+	return d.GetState(), nil
+}
