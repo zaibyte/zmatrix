@@ -12,8 +12,8 @@ import (
 // Database will return zmerrors.ErrTooFastSet.
 const (
 	// DefaultToLv1Threshold is 8 GiB.
-	DefaultToLv1Threshold  = 8 * 1024 * 1024 * 1024
-	DefaultToLv1MaxEntries = 4194304 // Will cost ~2s for sorting all keys (8bytes each)
+	DefaultToLv1Threshold  = typeutil.ByteSize(8 * 1024 * 1024 * 1024)
+	DefaultToLv1MaxEntries = uint64(4194304) // Will cost ~2s for sorting all keys (8bytes each)
 )
 
 type Config struct {

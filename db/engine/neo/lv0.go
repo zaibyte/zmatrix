@@ -24,7 +24,7 @@ type lv0 struct {
 	db  *pebble.DB
 }
 
-func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate bool) (*lv0, error) {
+func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate, isSealed bool) (*lv0, error) {
 
 	dir := makeL0Dir(dbPath)
 	if isCreate {
@@ -42,6 +42,7 @@ func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate bool) (*lv0, error) {
 	db, err := pebble.Open(dir, &pebble.Options{
 		Logger:       xlog.GetGRPCLoggerV2(),
 		MemTableSize: defaultMemTableSize,
+		ReadOnly:     isSealed,
 	})
 	if err != nil {
 		return nil, err
@@ -55,12 +56,12 @@ func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate bool) (*lv0, error) {
 
 func createLv0(dbPath string, fs vfs.FS) (*lv0, error) {
 
-	return createOrLoadLv0(dbPath, fs, true)
+	return createOrLoadLv0(dbPath, fs, true, false)
 }
 
-func loadLv0(dbPath string, fs vfs.FS) (l *lv0, err error) {
+func loadLv0(dbPath string, fs vfs.FS, isSealed bool) (l *lv0, err error) {
 
-	return createOrLoadLv0(dbPath, fs, false)
+	return createOrLoadLv0(dbPath, fs, false, isSealed)
 }
 
 func (l *lv0) set(key, value []byte) error {

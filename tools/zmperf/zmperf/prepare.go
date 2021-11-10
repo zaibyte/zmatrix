@@ -60,7 +60,7 @@ func (r *Runner) prepareRead() (setCost int64) {
 					err = nil
 					continue
 				} else {
-					log.Fatal("prepare items failed", err)
+					log.Fatal("prepare items failed: ", err)
 				}
 			}
 

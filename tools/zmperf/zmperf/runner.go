@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"g.tesamc.com/IT/zaipkg/uid"
+
 	"g.tesamc.com/IT/zaipkg/app"
 	"g.tesamc.com/IT/zmatrix/mgr"
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
@@ -59,15 +61,16 @@ func Create(ctx context.Context, cfg *Config) (*Runner, error) {
 
 	r.cfg.jobType = jobTypes[r.cfg.JobType]
 
+	insID := uid.GenRandInstanceID()
 	var err error
 	if cfg.jobType == RPC {
 		r.client = urpc.NewClient(cfg.ServerAddr)
 	} else {
 		r.client, err = server.Create(ctx, &config.Config{
-			App:        app.Config{},
+			App:        app.Config{InstanceID: insID},
 			ServerAddr: "",
 			Manager: mgr.Config{
-				InstanceID: "1",
+				InstanceID: insID,
 				DataRoot:   cfg.DataRoot,
 				Scheduler:  schedCfg,
 			},

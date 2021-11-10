@@ -29,7 +29,7 @@ const (
 )
 
 var (
-	DefaultUpdateStateDuration = typeutil.NewDuration(5 * time.Minute)
+	DefaultUpdateStateDuration = 5 * time.Minute
 )
 
 func (c *Config) Adjust() {
