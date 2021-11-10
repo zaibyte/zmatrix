@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cockroachdb/pebble"
+
 	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
 
 	"g.tesamc.com/IT/zaipkg/xlog"
@@ -288,7 +290,15 @@ func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
 		return v, closer, nil
 	}
 
-	return d.lv0.get(key)
+	v, closer, err = d.lv0.get(key)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+
+			return d.lv1.search(key) // check lv1 again.
+		}
+	}
+
+	return v, closer, err
 }
 
 func (d *Database) getCheck() (err error) {
@@ -378,9 +388,9 @@ func (d *Database) doTrans() {
 
 	// 1. write down seg
 	// 2. making lv1 index
-	// 3. delete one by one in lv0
-	// 4. write down lv1 index
-	// 5. update index in lv1
+	// 3. write down lv1 index
+	// 4. update index in lv1
+	// 5. delete one by one in lv0 (dedup in next trans process if crash in deletion)
 
 	snap := d.lv0.getSnapshot()
 	segID, idx, min, max, err := d.lv1.makeSegIdx(snap, int(dirty), int64(used))
@@ -388,20 +398,19 @@ func (d *Database) doTrans() {
 		return
 	}
 
-	iter := snap.NewIter(nil)
-	defer iter.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		k := iter.Key()
-		d.lv0.delete(k)
-	}
-	err = iter.Close()
-
 	err = d.lv1.persistIdx(segID, idx, []byte(min), []byte(max))
 	if err != nil {
 		return
 	}
 
 	d.lv1.addSegIdxRange(segID, idx, []byte(min), []byte(max))
+
+	iter := snap.NewIter(nil)
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := iter.Key()
+		d.lv0.delete(k)
+	}
 }
 
 func (d *Database) Seal() error {

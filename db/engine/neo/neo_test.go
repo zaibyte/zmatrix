@@ -242,6 +242,7 @@ func TestDatabase_GetWithTrans(t *testing.T) {
 	}()
 
 	wg2.Wait()
+
 }
 
 func TestDatabase_Load(t *testing.T) {
