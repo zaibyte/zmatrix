@@ -85,7 +85,7 @@ func (b *Boot) Flush() error {
 	cs := xdigest.Sum32(b.buf[:BootSectorSize-4])
 	binary.LittleEndian.PutUint32(b.buf[BootSectorSize-4:], cs)
 
-	_, err = b.F.Write(b.buf)
+	_, err = b.F.WriteAt(b.buf, 0)
 	if err != nil {
 		return err
 	}
