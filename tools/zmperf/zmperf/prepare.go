@@ -34,6 +34,8 @@ func (r *Runner) prepareRead() (setCost int64) {
 	k := cntInThread / eachBatch
 	r.keyMax = uint32(eachBatch * k)
 
+	log.Printf("prepare with: %d items\n", r.keyMax+1)
+
 	keys := make([][]byte, eachBatch)
 	for i := range keys {
 		keys[i] = make([]byte, 8)
@@ -46,7 +48,7 @@ func (r *Runner) prepareRead() (setCost int64) {
 
 	start := time.Now().UnixNano()
 	key := uint32(0)
-	for j := 0; j < k; k++ {
+	for j := 0; j < k; j++ {
 		for i := range keys {
 			binary.BigEndian.PutUint64(keys[i], uint64(key))
 			key++
