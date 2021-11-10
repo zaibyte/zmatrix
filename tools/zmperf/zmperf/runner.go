@@ -114,17 +114,15 @@ func (r *Runner) Run() (err error) {
 	atomic.StoreInt64(&r.startTS, start)
 	atomic.StoreInt64(&r.stopTS, start+r.cfg.JobTime)
 
-	r.stopWg.Add(1)
-
 	log.Println("start to prepare read")
 	prepareStart := tsc.UnixNano()
-	setCost := r.prepareRead()
+	setCost, cntTooManyReq := r.prepareRead()
 	prepareCost := tsc.UnixNano() - prepareStart
 	setCostSec := float64(setCost) / float64(time.Second)
 	prepareCnt := r.keyMax + 1
 
-	log.Printf("prepare read done with batch set (512KB each batch), cost: %.2fs for %d items (8B key + %dB value), QPS: %.2f\n",
-		setCostSec, prepareCnt, r.cfg.ValSize, float64(prepareCnt)/setCostSec)
+	log.Printf("prepare read done with batch set (512KB each batch), cost: %.2fs (cnt_too_many_req: %d, sleep_for_too_many_req: %ds) for %d items (8B key + %dB value), QPS: %.2f\n",
+		setCostSec, cntTooManyReq, cntTooManyReq*3, prepareCnt, r.cfg.ValSize, float64(prepareCnt)/setCostSec)
 
 	atomic.AddInt64(&r.stopTS, prepareCost)
 

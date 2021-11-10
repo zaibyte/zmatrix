@@ -22,7 +22,7 @@ func randFillVal(n int64) {
 }
 
 // prepareRead using batch set for speeding up.
-func (r *Runner) prepareRead() (setCost int64) {
+func (r *Runner) prepareRead() (setCost int64, cntTooManyRequest int) {
 
 	MBs := r.cfg.MBPerGetThread
 	cntInThread := MBs * 1024 * 1024 / int(r.cfg.ValSize)
@@ -60,6 +60,7 @@ func (r *Runner) prepareRead() (setCost int64) {
 				if errors.Is(err, orpc.ErrTooManyRequests) {
 					time.Sleep(3 * time.Second) // Sleep for a while for transferring.
 					err = nil
+					cntTooManyRequest++
 					continue
 				} else {
 					log.Fatal("prepare items failed: ", err)

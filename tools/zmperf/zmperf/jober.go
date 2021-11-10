@@ -2,8 +2,12 @@ package zmperf
 
 import (
 	"encoding/binary"
+	"errors"
 	"sync"
 	"sync/atomic"
+
+	"g.tesamc.com/IT/zaipkg/orpc"
+	"g.tesamc.com/IT/zaipkg/xlog"
 
 	"g.tesamc.com/IT/zaipkg/xmath/xrand"
 
@@ -48,6 +52,9 @@ func (j *jober) get(key []byte) (bool, int64) {
 	_, closer, err := j.client.Get(0, key)
 	cost := tsc.UnixNano() - start
 	if err != nil {
+		if errors.Is(err, orpc.ErrNotFound) {
+			xlog.Fatalf("failed to get, not found for key: %d", binary.BigEndian.Uint64(key))
+		}
 		return false, cost
 	}
 	_ = closer.Close()
