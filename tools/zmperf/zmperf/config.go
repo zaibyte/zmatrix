@@ -24,9 +24,10 @@ type Config struct {
 	// Scheduler configs.
 	IOThreads int `toml:"io_threads"`
 
+	NopSched bool `toml:"nop_sched"`
 	// IsDoNothing will do nothing at all when there should be a I/O request.
 	// It's used for measuring the zMatrix works as expect.
-	IsDoNothing bool `toSml:"is_do_nothing"`
+	IsDoNothing bool `toml:"is_do_nothing"`
 
 	// When JobType is rpc, pls start zMatrix in another process with ServerAddr.
 	ServerAddr string `toml:"server_addr"`

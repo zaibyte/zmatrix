@@ -6,10 +6,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"g.tesamc.com/IT/zaipkg/xmath/xrand"
+
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xlog"
-
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
 
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
 
@@ -57,7 +57,7 @@ func (j *jober) get(key []byte) (bool, int64) {
 		}
 		return false, cost
 	}
-	_ = closer.Close()
+	defer closer.Close()
 	return true, cost
 }
 

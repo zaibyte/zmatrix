@@ -78,9 +78,19 @@ func (r *Runner) prepareRead() (setCost int64, cntTooManyRequest int) {
 
 	err := r.client.Seal(0)
 	if err != nil {
-		log.Fatal("seal database failed", err)
+		log.Fatal("seal database failed: ", err)
 	}
 
 	time.Sleep(10 * time.Second) // Waiting for potential transferring done.
+
+	// Restart client is useful when it's zMatrix Server, because sealed neo database will start pebbleDB in read-only model,
+	// in this model, the compaction will be stopped. And lv1 could get full ability of I/O.
+	r.client.Stop(nil)
+
+	err = r.client.Start()
+	if err != nil {
+		log.Fatal("restart client failed: ", err)
+	}
+
 	return
 }

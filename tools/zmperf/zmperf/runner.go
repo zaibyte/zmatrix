@@ -54,9 +54,12 @@ func Create(ctx context.Context, cfg *Config) (*Runner, error) {
 	r.stopWg = new(sync.WaitGroup)
 	r.ctx, r.cancel = context.WithCancel(ctx)
 
-	schedCfg := sched.Config{
+	schedCfg := &sched.Config{
 		Threads:     r.cfg.IOThreads,
 		QueueConfig: new(sched.QueueConfig),
+	}
+	if cfg.NopSched {
+		schedCfg = nil
 	}
 
 	r.cfg.jobType = jobTypes[r.cfg.JobType]
