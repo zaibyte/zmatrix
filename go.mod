@@ -36,7 +36,6 @@ require (
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/gyuho/linux-inspect v0.0.0-20180929231013-a492bfc5f12a // indirect
 	github.com/jaypipes/ghw v0.8.0 // indirect
-	github.com/julienschmidt/httprouter v1.2.0 // indirect
 	github.com/klauspost/compress v1.11.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/kr/pretty v0.2.1 // indirect
@@ -49,7 +48,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/templexxx/cpu v0.0.8-0.20210423085042-1c810926b5dd // indirect
 	github.com/templexxx/fnc v1.0.1 // indirect
-	github.com/urfave/negroni/v2 v2.0.2 // indirect
 	github.com/zaibyte/nanozap v0.0.8-0.20211015024732-90f56191337a // indirect
 	github.com/zeebo/xxh3 v1.0.0-rc3.0.20210921232450-c77878a38204 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
