@@ -1,6 +1,7 @@
 package neo
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -208,7 +209,7 @@ func (d *Database) Set(key, value []byte) error {
 	}
 
 	if needTrans {
-		go d.doTrans()
+		go d.doTrans(false, false)
 	}
 
 	if !setOK { // Must be undone transfer job.
@@ -240,7 +241,7 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 	}
 
 	if needTrans {
-		go d.doTrans()
+		go d.doTrans(false, false)
 	}
 
 	if !setOK { // Must be undone transfer job.
@@ -290,15 +291,22 @@ func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
 		return v, closer, nil
 	}
 
-	v, closer, err = d.lv0.get(key)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
+	xlog.Debugf("not found in lv1 for key: %d, dirty: %d, state: %s",
+		binary.BigEndian.Uint64(key), atomic.LoadUint64(&d.lv0DirtyCnt), d.GetState().String())
 
-			return d.lv1.search(key) // check lv1 again.
+	if atomic.LoadUint64(&d.lv0DirtyCnt) != 0 && d.GetState() == zmatrixpb.DBState_DB_Sealed {
+		v, closer, err = d.lv0.get(key)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+
+				return d.lv1.search(key) // check lv1 again.
+			}
 		}
+
+		return v, closer, err
 	}
 
-	return v, closer, err
+	return nil, nil, orpc.ErrNotFound
 }
 
 func (d *Database) getCheck() (err error) {
@@ -350,10 +358,21 @@ func (d *Database) needTrans() bool {
 }
 
 // doTrans in background goroutine
-func (d *Database) doTrans() {
+//
+// set compact true, if after trans need compact.
+// when must is ture, trans must be done. Only set true when seal.
+func (d *Database) doTrans(compact, must bool) {
 
-	if !atomic.CompareAndSwapInt64(&d.isTran, 0, 1) {
-		return
+	if must {
+		for {
+			if atomic.CompareAndSwapInt64(&d.isTran, 0, 1) {
+				break
+			}
+		}
+	} else {
+		if !atomic.CompareAndSwapInt64(&d.isTran, 0, 1) {
+			return
+		}
 	}
 
 	var dirty, used uint64
@@ -370,10 +389,12 @@ func (d *Database) doTrans() {
 			atomic.AddUint64(&d.lv0Used, ^(used - 1))
 			atomic.AddUint64(&d.lv0DirtyCnt, ^(dirty - 1))
 			atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
-
+			if must {
+				_, _ = d.SetState(zmatrixpb.DBState_DB_Sealed) // must is come with seal.
+			}
 		} else {
 			if errors.Is(err, zmerrors.ErrDatabaseFull) {
-				d.SetState(zmatrixpb.DBState_DB_Sealed)
+				d.SetState(zmatrixpb.DBState_DB_Full)
 				xlog.Warnf("database(neo): %d is full: %s", d.id, err.Error())
 				err = nil
 				atomic.CompareAndSwapInt64(&d.isTran, 1, 0)
@@ -411,6 +432,10 @@ func (d *Database) doTrans() {
 		k := iter.Key()
 		d.lv0.delete(k)
 	}
+
+	if compact {
+		_ = d.lv0.db.Compact([]byte(min), []byte(max))
+	}
 }
 
 func (d *Database) Seal() error {
@@ -419,15 +444,15 @@ func (d *Database) Seal() error {
 		return orpc.ErrServiceClosed
 	}
 
-	state, ok := d.SetState(zmatrixpb.DBState_DB_Sealed)
-	if !ok {
+	state := d.GetState()
+	if state == zmatrixpb.DBState_DB_Sealed {
 		return nil
 	}
-	if state != zmatrixpb.DBState_DB_Sealed {
-		return nil
+	if state != zmatrixpb.DBState_DB_ReadWrite {
+		return xerrors.WithMessage(orpc.ErrBadRequest, "cannot seal database for non-readwrite")
 	}
 
-	go d.doTrans()
+	go d.doTrans(true, true)
 	return nil
 }
 
