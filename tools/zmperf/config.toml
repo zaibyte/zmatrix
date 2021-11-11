@@ -10,6 +10,7 @@ skip_time = 10
 mb_per_get_thread = 10240
 get_threads = 64    # 1, 16, 64
 
+nop_sched = false
 io_threads = 32
 
 is_do_nothing = false

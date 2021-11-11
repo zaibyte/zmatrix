@@ -12,9 +12,9 @@ import (
 
 // Config is Mgr's config.
 type Config struct {
-	InstanceID string       `toml:"instance_id"`
-	DataRoot   string       `toml:"data_root"`
-	Scheduler  sched.Config `toml:"scheduler"`
+	InstanceID string        `toml:"instance_id"`
+	DataRoot   string        `toml:"data_root"`
+	Scheduler  *sched.Config `toml:"scheduler"`
 	// MinDiskSpace for creating a new database.
 	MinDiskSpace typeutil.ByteSize `toml:"min_disk_space"`
 	// Database engine when creating new one. Only supports Neo/neo in present.
