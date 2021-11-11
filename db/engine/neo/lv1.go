@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/templexxx/tsc"
+
 	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
 
 	"github.com/openacid/slim/encode"
@@ -279,7 +281,8 @@ func (l *lv1) has(key []byte) bool {
 			offset := o.(int64)
 
 			buf := xbytes.GetAlignedBytes(lv1BlockAlignSize)
-			_, err := segF.ReadAt(buf, offset)
+
+			err := l.sched.DoSync(xio.ReqObjRead, segF, offset, buf)
 			if err != nil {
 				xbytes.PutAlignedBytes(buf)
 				continue
@@ -299,11 +302,15 @@ func (l *lv1) has(key []byte) bool {
 // search key's value if existed.
 func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 
+	start := tsc.UnixNano()
 	ids, ok := l.searchSeg(key)
 	if !ok {
 		return nil, nil, orpc.ErrNotFound
 	}
+	xlog.Debugf("cost: %.2fus for search seg for %d",
+		(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
 
+	var has bool
 	for _, id := range ids {
 		segF, idx, ok := l.getSeg(id)
 		if ok { // Ensure there is no memory order issues.
@@ -311,15 +318,17 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 			if !found {
 				continue
 			}
+			xlog.Debugf("cost: %.2fus for search seg & index for %d",
+				(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
 			offset := o.(int64)
-			has, value, closer, err := l.getValueFromSeg(segF, offset, key)
-			if err != nil {
-				xlog.Errorf("failed to read seg: %s", err.Error())
+			has, value, closer, err = l.getValueFromSeg(segF, offset, key)
+			if err != nil || !has {
+				xlog.Warnf("failed to read seg: %s", err.Error())
 				continue
 			}
-			if !has {
-				continue
-			}
+
+			xlog.Debugf("cost: %.2fus for found %d in %d segs",
+				(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key), len(ids))
 			return value, closer, nil
 		}
 	}
@@ -328,13 +337,19 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 
 func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byte, io.Closer, error) {
 
+	startT := tsc.UnixNano()
+
 	buf := xbytes.GetAlignedBytes(lv1BlockAlignSize)
-	_, err := f.ReadAt(buf, offset)
+
+	err := l.sched.DoSync(xio.ReqObjRead, f, offset, buf)
 	if err != nil {
 		xbytes.PutAlignedBytes(buf)
 
 		return false, nil, nil, err
 	}
+
+	xlog.Debugf("cost: %.2fus for read value of %d in file",
+		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 
 	off, size, ok := searchInBlock(buf, key)
 	if !ok {
@@ -342,10 +357,15 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 		return false, nil, nil, nil
 	}
 
+	xlog.Debugf("cost: %.2fus for read + search value of %d in file",
+		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
+
 	start := int(off)
 	end := start + int(size)
 
 	if end <= lv1BlockAlignSize { // It's in this block.
+		xlog.Debugf("cost: %.2fus for read small value in block of %d in file",
+			(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 		return true, buf[start:end], xbytes.PoolAlignedBytesCloser{P: buf}, nil
 	}
 
@@ -365,7 +385,7 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 		bigBInPool = true
 	}
 
-	_, err = f.ReadAt(bigB, offset)
+	err = l.sched.DoSync(xio.ReqObjRead, f, offset, bigB)
 	if err != nil {
 		if bigBInPool {
 			xbytes.PutAlignedBytes(bigB)
@@ -485,6 +505,8 @@ func makeSegIdxPath(segsPath string, id int64) string {
 // segment file will be added in memory.
 //
 // minSize is key + value size for this snapshot counted by neo.
+//
+// TODO it's slow in present, I should take full advantage of buf.
 func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 	id int64, idx *index.SlimIndex, min, max string, err error) {
 
@@ -550,9 +572,9 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 				items[iii].Offset = offset
 			}
 
-			itemOff = lv1BlockHeaderSize
 			offset += wa
 
+			itemOff = lv1BlockHeaderSize
 			itemsInBlock = 0
 			hs = hs[:0]
 			offs = offs[:0]
