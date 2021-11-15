@@ -4,24 +4,35 @@ import (
 	"errors"
 	"io"
 
+	"g.tesamc.com/IT/zaipkg/xlog"
+
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xerrors"
 	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
 	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 )
 
-func (s *Server) Set(db uint32, key, value []byte) error {
+func (s *Server) Set(db uint32, key, value []byte) (err error) {
+
+	defer func() {
+		if err != nil {
+			xlog.Error(err.Error())
+		}
+	}()
 
 	if db > config2.MaxDBNum {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		return
 	}
 
 	if len(key) > config2.MaxKeyLen {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+		return
 	}
 
 	if len(value) > config2.MaxValueLen {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
+		return
 	}
 
 	d, err := s.mgr.GetDB(db)
@@ -40,38 +51,57 @@ func (s *Server) Set(db uint32, key, value []byte) error {
 		}
 	}
 
-	return d.Set(key, value)
+	err = d.Set(key, value)
+	return
 }
 
 func (s *Server) Get(db uint32, key []byte) (value []byte, closer io.Closer, err error) {
 
+	defer func() {
+		if err != nil {
+			xlog.Error(err.Error())
+		}
+	}()
+
 	if db > config2.MaxDBNum {
-		return nil, nil, xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		return
 	}
 
 	if len(key) > config2.MaxKeyLen {
-		return nil, nil, xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+		return
 	}
 
 	d, err := s.mgr.GetDB(db)
 	if err != nil {
 		return nil, nil, err
 	}
-	return d.Get(key)
+	value, closer, err = d.Get(key)
+	return
 }
 
-func (s *Server) SetBatch(db uint32, keys, values [][]byte) error {
+func (s *Server) SetBatch(db uint32, keys, values [][]byte) (err error) {
+
+	defer func() {
+		if err != nil {
+			xlog.Error(err.Error())
+		}
+	}()
 
 	if db > config2.MaxDBNum {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		return
 	}
 
 	for i, value := range values {
 		if len(keys[i]) > config2.MaxKeyLen {
-			return xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+			err = xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+			return
 		}
 		if len(value) > config2.MaxValueLen {
-			return xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
+			err = xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
+			return
 		}
 	}
 
@@ -91,34 +121,59 @@ func (s *Server) SetBatch(db uint32, keys, values [][]byte) error {
 		}
 	}
 
-	return d.SetBatch(keys, values)
+	err = d.SetBatch(keys, values)
+	return
 }
 
-func (s *Server) Remove(db uint32) error {
+func (s *Server) Remove(db uint32) (err error) {
+
+	defer func() {
+		if err != nil {
+			xlog.Error(err.Error())
+		}
+	}()
 
 	if db > config2.MaxDBNum {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		return
 	}
 
-	return s.mgr.RemoveDB(db)
+	err = s.mgr.RemoveDB(db)
+	return
 }
 
-func (s *Server) Seal(db uint32) error {
+func (s *Server) Seal(db uint32) (err error) {
+
+	defer func() {
+		if err != nil {
+			xlog.Error(err.Error())
+		}
+	}()
 
 	if db > config2.MaxDBNum {
-		return xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		return
 	}
 
 	d, err := s.mgr.GetDB(db)
 	if err != nil {
 		return err
 	}
-	return d.Seal()
+	err = d.Seal()
+	return
 }
 
-func (s *Server) GetState(db uint32) (zmatrixpb.DBState, error) {
+func (s *Server) GetState(db uint32) (state zmatrixpb.DBState, err error) {
+
+	defer func() {
+		if err != nil {
+			xlog.Error(err.Error())
+		}
+	}()
+
 	if db > config2.MaxDBNum {
-		return 0, xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		err = xerrors.WithMessage(orpc.ErrBadRequest, "too big db id")
+		return
 	}
 
 	d, err := s.mgr.GetDB(db)
