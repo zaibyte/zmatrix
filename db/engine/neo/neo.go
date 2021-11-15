@@ -433,11 +433,13 @@ func (d *Database) doTrans(compact, must bool) {
 	snap := d.lv0.getSnapshot()
 	segID, idx, min, max, err := d.lv1.makeSegIdx(snap, int(dirty), int64(used))
 	if err != nil {
+		xlog.Errorf("neo: failed to make segment & index: %s", err.Error())
 		return
 	}
 
 	err = d.lv1.persistIdx(segID, idx, []byte(min), []byte(max))
 	if err != nil {
+		xlog.Errorf("neo: failed to persist index: %s", err.Error())
 		return
 	}
 
