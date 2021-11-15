@@ -18,7 +18,7 @@ const (
 
 type Config struct {
 	ToLv1Threshold  typeutil.ByteSize `toml:"to_lv1_threshold"`
-	ToLv1MaxEntries uint64            `toml:"to_lv_1_max_entries"`
+	ToLv1MaxEntries uint64            `toml:"to_lv1_max_entries"`
 }
 
 var DefaultConfig = &Config{
