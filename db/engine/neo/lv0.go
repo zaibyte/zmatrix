@@ -48,6 +48,10 @@ func createOrLoadLv0(dbPath string, fs vfs.FS, isCreate, isSealed bool) (*lv0, e
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO check db is empty or not, if empty return nil
+	db.NewIter(nil)
+
 	return &lv0{
 		dir: dir,
 		fs:  fs,
@@ -87,9 +91,15 @@ func (l *lv0) getSnapshot() *pebble.Snapshot {
 	return l.db.NewSnapshot()
 }
 
+// ignore error here, because we will only delete item inside transferring process,
+// and if delete is failed, we could check exited key in next transferring round.
 func (l *lv0) delete(key []byte) {
 
-	_ = l.db.Delete(key, nil)
+	// We can guarantee that a record is written once and then deleted once.
+	// Using SingleDelete for higher performance by avoiding propagating
+	// a SingleDelete operation during a compaction as soon as the
+	// corresponding Set operation is encountered.
+	_ = l.db.SingleDelete(key, nil)
 }
 
 func (l *lv0) get(key []byte) ([]byte, io.Closer, error) {
