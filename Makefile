@@ -14,7 +14,11 @@ LDFLAGS += -X "$(ZAI_PKG)/version.GitBranch=$(shell git rev-parse --abbrev-ref H
 TEST_PKGS := $(shell find . -iname "*_test.go" -exec dirname {} \; | \
                      uniq | sed -e "s/^\./g.tesamc.com\/IT\/zmatrix/")
 
-all: test
+all: tidy test build
+
+build:
+	go build -ldflags '$(LDFLAGS)' -o bin/zmatrix cmd/zmatrix-server/main.go
+	go build -o bin/zmperf tools/zmperf/main.go
 
 test:
 	go test -race -cover $(TEST_PKGS)
