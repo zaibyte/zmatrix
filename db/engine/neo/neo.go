@@ -130,13 +130,30 @@ func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler, i
 	}
 
 	var err error
-	d.lv0, err = loadLv0(path, fs, isSealed)
+	d.lv0, err = loadLv0(path, fs, isSealed) // TODO recalculate dirty at loading.
 	if err != nil {
 		return nil, err
 	}
+
+	iter := d.lv0.db.NewIter(nil)
+	for iter.First(); iter.Valid(); iter.Next() {
+		k := iter.Key()
+		d.lv0DirtyCnt++
+		d.lv0Used += uint64(len(k))
+		d.lv0Used += uint64(len(iter.Value()))
+	}
+	_ = iter.Close()
+
+	if isSealed && d.lv0DirtyCnt == 0 {
+		_ = d.lv0.close()
+		d.lv0 = nil
+	}
+
 	d.lv1, err = loadLv1(path, fs, sched)
 	if err != nil {
-		_ = d.lv0.close()
+		if d.lv0 != nil {
+			_ = d.lv0.close()
+		}
 		return nil, err
 	}
 
@@ -427,11 +444,12 @@ func (d *Database) doTrans(compact, must bool) {
 	d.lv1.addSegIdxRange(segID, idx, []byte(min), []byte(max))
 
 	iter := snap.NewIter(nil)
-	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := iter.Key()
 		d.lv0.delete(k)
 	}
+	_ = iter.Close()
+	_ = snap.Close()
 
 	if compact {
 		_ = d.lv0.db.Compact([]byte(min), []byte(max))
@@ -474,9 +492,11 @@ func (d *Database) Close() error {
 		}
 	}
 
-	err := d.lv0.close()
-	if err != nil {
-		xlog.Warnf("failed to close database(neo): %d lv0: %s", d.id, err.Error())
+	if d.lv0 != nil {
+		err := d.lv0.close()
+		if err != nil {
+			xlog.Warnf("failed to close database(neo): %d lv0: %s", d.id, err.Error())
+		}
 	}
 
 	d.lv1.close()
