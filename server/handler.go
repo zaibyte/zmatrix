@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"io"
 
 	"g.tesamc.com/IT/zaipkg/xlog"
@@ -25,13 +26,14 @@ func (s *Server) Set(db uint32, key, value []byte) (err error) {
 		return
 	}
 
-	if len(key) > config2.MaxKeyLen {
-		err = xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+	nk, nv := len(key), len(value)
+
+	if nk > config2.MaxKeyLen || nk == 0 {
+		err = xerrors.WithMessage(orpc.ErrBadRequest, fmt.Sprintf("illegal key len, exp [1, 256), got: %d", nk))
 		return
 	}
-
-	if len(value) > config2.MaxValueLen {
-		err = xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
+	if nv > config2.MaxValueLen || nv == 0 {
+		err = xerrors.WithMessage(orpc.ErrBadRequest, fmt.Sprintf("illegal value len, exp [1B,4M], got: %d B", nv))
 		return
 	}
 
@@ -94,13 +96,16 @@ func (s *Server) SetBatch(db uint32, keys, values [][]byte) (err error) {
 		return
 	}
 
-	for i, value := range values {
-		if len(keys[i]) > config2.MaxKeyLen {
-			err = xerrors.WithMessage(orpc.ErrBadRequest, "too long key")
+	for i := range values {
+
+		nk, nv := len(keys[i]), len(values[i])
+
+		if nk > config2.MaxKeyLen || nk == 0 {
+			err = xerrors.WithMessage(orpc.ErrBadRequest, fmt.Sprintf("illegal key len, exp [1, 256), got: %d", nk))
 			return
 		}
-		if len(value) > config2.MaxValueLen {
-			err = xerrors.WithMessage(orpc.ErrBadRequest, "too long value")
+		if nv > config2.MaxValueLen || nv == 0 {
+			err = xerrors.WithMessage(orpc.ErrBadRequest, fmt.Sprintf("illegal value len, exp [1B,4M], got: %d B", nv))
 			return
 		}
 	}
