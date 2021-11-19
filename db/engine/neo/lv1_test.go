@@ -225,8 +225,8 @@ func TestLv1MakeSearchSeg(t *testing.T) {
 		minSize += int64(vLen)
 	}
 
-	// Ensure there are < KB, == KB, > lv1BlockAlignSize, B, 4MB value.
-	vLen := lv1BlockAlignSize + 1025
+	// Ensure there are < KB, == KB, > blockGainSize, B, 4MB value.
+	vLen := blockGainSize + 1025
 	binary.BigEndian.PutUint64(keyBuf, uint64(5))
 	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
 	if err != nil {
@@ -269,11 +269,13 @@ func TestLv1MakeSearchSeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, int64(0), id)
-	err = l.persistIdx(id, idx, []byte(min), []byte(max))
+	err = l.persistIdx(id, idx, min, max)
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.addSegIdxRange(id, idx, []byte(min), []byte(max))
+	l.addSegIdxRange(id, idx, min, max)
+
+	// TODO may caused by delete behavior changes.
 
 	iter := snap.NewIter(nil)
 	defer iter.Close()
@@ -283,9 +285,14 @@ func TestLv1MakeSearchSeg(t *testing.T) {
 
 		v, closer, err := l.search(k)
 		if err != nil {
-			t.Fatalf("failed to search: %s", err.Error())
+			t.Fatalf("failed to search for %d: %s", binary.BigEndian.Uint64(k), err.Error())
 		}
 		if err == nil {
+
+			if len(v) != len(iter.Value()) {
+				t.Fatal("value length mismatched")
+			}
+
 			if !bytes.Equal(v, iter.Value()) {
 				t.Fatal("value mismatched")
 			}
@@ -505,8 +512,8 @@ func TestLv1Load(t *testing.T) {
 		minSize += int64(vLen)
 	}
 
-	// Ensure there are < KB, == KB, > lv1BlockAlignSize, B, 4MB value.
-	vLen := lv1BlockAlignSize + 1025
+	// Ensure there are < KB, == KB, > blockGainSize, B, 4MB value.
+	vLen := blockGainSize + 1025
 	binary.BigEndian.PutUint64(keyBuf, uint64(5))
 	err = l0.Set(keyBuf[:kLen], valBuf[:vLen], pebble.Sync)
 	if err != nil {
@@ -549,13 +556,13 @@ func TestLv1Load(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, int64(0), id)
-	err = l.persistIdx(id, idx, []byte(min), []byte(max))
+	err = l.persistIdx(id, idx, min, max)
 	if err != nil {
 		t.Fatal(err)
 	}
-	l.addSegIdxRange(id, idx, []byte(min), []byte(max))
+	l.addSegIdxRange(id, idx, min, max)
 
-	err = l.persistIdx(id, idx, []byte(min), []byte(max))
+	err = l.persistIdx(id, idx, min, max)
 	if err != nil {
 		t.Fatal(err)
 	}

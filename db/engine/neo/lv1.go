@@ -12,34 +12,28 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/templexxx/tsc"
-
-	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
-
-	"github.com/openacid/slim/encode"
-
-	"github.com/openacid/slim/trie"
-
-	"g.tesamc.com/IT/zmatrix/pkg/config"
-
-	"github.com/spf13/cast"
+	"g.tesamc.com/IT/zaipkg/xmath"
 
 	"g.tesamc.com/IT/zaipkg/directio"
-
-	"g.tesamc.com/IT/zaipkg/xlog"
-
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xbytes"
 	"g.tesamc.com/IT/zaipkg/xdigest"
 	"g.tesamc.com/IT/zaipkg/xerrors"
 	"g.tesamc.com/IT/zaipkg/xio"
+	"g.tesamc.com/IT/zaipkg/xlog"
 	"g.tesamc.com/IT/zaipkg/xstrconv"
+	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/cockroachdb/pebble"
+	"github.com/openacid/slim/encode"
 	"github.com/openacid/slim/index"
+	"github.com/openacid/slim/trie"
+	"github.com/spf13/cast"
 	"github.com/templexxx/bsegtree"
+	"github.com/templexxx/tsc"
+	"github.com/templexxx/xorsimd"
 )
 
 // Lvl1 Layout on local filesystem:
@@ -280,7 +274,7 @@ func (l *lv1) has(key []byte) bool {
 			}
 			offset := o.(int64)
 
-			buf := xbytes.GetAlignedBytes(lv1BlockAlignSize)
+			buf := xbytes.GetAlignedBytes(blockGainSize)
 
 			err := l.sched.DoSync(xio.ReqObjRead, segF, offset, buf)
 			if err != nil {
@@ -288,8 +282,8 @@ func (l *lv1) has(key []byte) bool {
 				continue
 			}
 
-			_, _, ok := searchInBlock(buf, key)
-			if !ok {
+			off, _ := searchInLv1Block(buf, key)
+			if off == -1 {
 				continue
 			} else {
 				return true
@@ -323,6 +317,9 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 			offset := o.(int64)
 			has, value, closer, err = l.getValueFromSeg(segF, offset, key)
 			if err != nil || !has {
+				if err == nil && !has {
+					err = orpc.ErrNotFound
+				}
 				xlog.Warnf("failed to read seg: %s", err.Error())
 				continue
 			}
@@ -339,7 +336,7 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 
 	startT := tsc.UnixNano()
 
-	buf := xbytes.GetAlignedBytes(lv1BlockAlignSize)
+	buf := xbytes.GetAlignedBytes(blockGainSize)
 
 	err := l.sched.DoSync(xio.ReqObjRead, f, offset, buf)
 	if err != nil {
@@ -351,8 +348,8 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 	xlog.Debugf("cost: %.2fus for read value of %d in file",
 		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 
-	off, size, ok := searchInBlock(buf, key)
-	if !ok {
+	off, size := searchInLv1Block(buf, key)
+	if off == -1 {
 		xbytes.PutAlignedBytes(buf)
 		return false, nil, nil, nil
 	}
@@ -360,41 +357,42 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 	xlog.Debugf("cost: %.2fus for read + search value of %d in file",
 		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 
-	start := int(off)
-	end := start + int(size)
+	start := off
+	end := start + size
 
-	if end <= lv1BlockAlignSize { // It's in this block.
+	if end <= blockGainSize { // It's in this block.
 		xlog.Debugf("cost: %.2fus for read small value in block of %d in file",
 			(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 		return true, buf[start:end], xbytes.PoolAlignedBytesCloser{P: buf}, nil
 	}
 
-	xbytes.PutAlignedBytes(buf)
-
-	left := int(size) - (lv1BlockAlignSize - start)
-	wanted := xbytes.AlignSize(lv1BlockAlignSize+int64(left), 4096)
+	left := size - (blockGainSize - start)
+	wanted := xbytes.AlignSize(int64(left), 4096)
 	var bigB []byte
+	bigBSize := blockGainSize + wanted // Big enough.
 	var closer io.Closer
-	bigBInPool := false
-	if wanted > config.MaxValueLen { // Too big no pool.
-		bigB = directio.AlignedBlock(int(wanted))
+	if bigBSize > xbytes.MaxSizeInPool {
+		bigB = directio.AlignedBlock(int(bigBSize))
 		closer = io.NopCloser(nil)
 	} else {
-		bigB = xbytes.GetAlignedBytes(int(wanted))
+		bigB = xbytes.GetAlignedBytes(int(bigBSize))
 		closer = xbytes.PoolAlignedBytesCloser{P: bigB}
-		bigBInPool = true
 	}
 
-	err = l.sched.DoSync(xio.ReqObjRead, f, offset, bigB)
+	err = l.sched.DoSync(xio.ReqObjRead, f, offset+blockGainSize, bigB[blockGainSize:])
 	if err != nil {
-		if bigBInPool {
-			xbytes.PutAlignedBytes(bigB)
-		}
+		_ = closer.Close()
+		xbytes.PutAlignedBytes(buf)
 
 		return false, nil, nil, err
 	}
 
-	return true, bigB[start:end], closer, nil
+	copy(bigB[start:blockGainSize], buf[start:blockGainSize])
+	xbytes.PutAlignedBytes(buf)
+
+	v := bigB[start : blockGainSize+left]
+
+	return true, v, closer, nil
 }
 
 // getSeg gets segment file & its index from memory.
@@ -508,7 +506,7 @@ func makeSegIdxPath(segsPath string, id int64) string {
 //
 // TODO it's slow in present, I should take full advantage of buf.
 func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
-	id int64, idx *index.SlimIndex, min, max string, err error) {
+	id int64, idx *index.SlimIndex, min, max []byte, err error) {
 
 	var segF vfs.File
 	defer func() {
@@ -543,87 +541,77 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 
 	sort.Sort(idxItems(items)) // Sort by key in asc order.
 
-	buf := directio.AlignedBlock(4*1024*1024 + 2*lv1BlockMinSize) // Max space will be taken by one item.
+	// We're using directIO, must be aligned to page size.
+	buf := directio.AlignedBlock(int(maxBlockSize)) // Max space will be taken by one item.
+	bufSize := len(buf)
 
-	itemOff := lv1BlockHeaderSize // This item offset from first byte of a block.
-	offset := int64(0)            // offset from segment file.
+	offBuf := 0            // offset in buf.
+	offWritten := int64(0) // written offset in seg file.
 
-	itemsInBlock := 0
-	hs := make([]uint64, 0, lv1BlockMaxItems)
-	offs := make([]uint16, 0, lv1BlockMaxItems)
-	sizes := make([]uint32, 0, lv1BlockMaxItems)
-	itemsIdxInBlock := make([]int, 0, lv1BlockMaxItems)
+	existed := 0 // existed key in lv1, jump over these items.
 
-	existed := 0
-	for i, item := range items {
+	for _, item := range items {
 
-		if itemOff >= lv1BlockMinSize || itemsInBlock == 8 {
+		key := xstrconv.ToBytes(item.Key)
+		val, closer, err2 := snap.Get(key)
+		if err2 != nil {
+			return 0, nil, nil, nil, err2
+		}
 
-			makeLv1MinBlock(buf, itemsInBlock, hs, offs, sizes)
+		nk := len(item.Key)
+		nv := len(val)
 
-			wa := xbytes.AlignSize(int64(itemOff), lv1BlockAlignSize)
+		itemOff := xmath.AlignToLast(offWritten+int64(offBuf), blockGainSize)
+		valOff := xmath.AlignToLast(offWritten+int64(offBuf)+valLenInBlock+keyLenInBlock+int64(nk), blockGainSize)
 
-			err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:wa])
+		orginOffBuf := offBuf
+		if itemOff != valOff { // Expect key_len, val_len, key are in the same gain.
+			offBuf = int(xmath.AlignSize(int64(offBuf), blockGainSize)) // Move to next align.
+		}
+
+		itemSizeInBlock := valLenInBlock + keyLenInBlock + nk + nv
+
+		if int(xbytes.AlignSize(int64(offBuf), blockGainSize))+itemSizeInBlock > bufSize { // Cannot write to buf anymore.
+
+			wn := xbytes.AlignSize(int64(offBuf), blockGainSize)
+
+			xorsimd.Bytes(buf[orginOffBuf:wn], buf[orginOffBuf:wn], buf[orginOffBuf:wn]) // Clean up extra bytes.
+
+			err = l.sched.DoSync(xio.ReqChunkWrite, segF, offWritten, buf[:wn]) // Using chunk write, because it's big I/O in most cases.
 			if err != nil {
 				return
 			}
 
-			for _, iii := range itemsIdxInBlock {
-				items[iii].Offset = offset
-			}
-
-			offset += wa
-
-			itemOff = lv1BlockHeaderSize
-			itemsInBlock = 0
-			hs = hs[:0]
-			offs = offs[:0]
-			sizes = sizes[:0]
-			itemsIdxInBlock = itemsIdxInBlock[:0]
+			offWritten += wn
+			offBuf = 0 // Next round will begin with the beginning.
 		}
 
-		kbs := xstrconv.ToBytes(item.Key)
-
-		if l.has(kbs) {
+		if l.has(key) {
 			existed++
+			_ = closer.Close()
 			continue
 		}
 
-		val, closer, err := snap.Get(kbs)
-		if err != nil {
-			return 0, nil, "", "", err
-		}
+		n := makeLv1Block(buf[offBuf:], nk, nv, key, val)
 
-		offs = append(offs, uint16(itemOff))
-
-		copy(buf[itemOff:], kbs)
-		itemOff += len(kbs)
-		copy(buf[itemOff:], val)
-		itemOff += len(val)
-
-		itemsInBlock++
-		hs = append(hs, xxhash.Sum64(kbs))
-		sizes = append(sizes, uint32(len(val)))
-		itemsIdxInBlock = append(itemsIdxInBlock, i)
+		item.Offset = itemOff
 
 		_ = closer.Close()
+		offBuf += n
 	}
 
-	segFSize := offset
+	segFSize := offWritten
 
-	if itemsInBlock != 0 { // if there is un-flushed in buf
-		wa := xbytes.AlignSize(int64(itemOff), lv1BlockAlignSize) // min block is lv1BlockAlignSize.
-		makeLv1MinBlock(buf, itemsInBlock, hs, offs, sizes)
+	if offBuf != 0 { // if there is un-flushed in buf
+		wn := xbytes.AlignSize(int64(offBuf), blockGainSize)
 
-		err = l.sched.DoSync(xio.ReqObjWrite, segF, offset, buf[:wa])
+		xorsimd.Bytes(buf[offBuf:wn], buf[offBuf:wn], buf[offBuf:wn]) // Clean up extra bytes.
+
+		err = l.sched.DoSync(xio.ReqChunkWrite, segF, offWritten, buf[:wn]) // Using chunk write, because it's big I/O in most cases.
 		if err != nil {
 			return
 		}
-
-		for _, iii := range itemsIdxInBlock {
-			items[iii].Offset = offset
-		}
-		segFSize += wa
+		segFSize += wn
 	}
 
 	idx, err = index.NewSlimIndex(items, nil)
@@ -636,7 +624,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 	xlog.Infof("persist seg file done for seg_id: %d with %d items in %.2fMB",
 		id, len(items)-existed, float64(segFSize)/float64(1024*1024))
 
-	return id, idx, items[0].Key, items[len(items)-1].Key, nil
+	return id, idx, []byte(items[0].Key), []byte(items[len(items)-1].Key), nil
 }
 
 func (l *lv1) addSeg(id int64, segF vfs.File) {
