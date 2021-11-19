@@ -14,6 +14,7 @@ require (
 	github.com/stretchr/testify v1.6.1
 	github.com/templexxx/bsegtree v0.0.2
 	github.com/templexxx/tsc v1.1.1
+	github.com/templexxx/xorsimd v0.4.1
 )
 
 require (

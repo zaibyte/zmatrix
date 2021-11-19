@@ -3,101 +3,76 @@ package neo
 import (
 	"bytes"
 	"encoding/binary"
-	"sync"
 
-	"github.com/cespare/xxhash/v2"
+	"g.tesamc.com/IT/zaipkg/xmath"
+	"g.tesamc.com/IT/zmatrix/pkg/config"
 )
 
 const (
-	lv1BlockCntSize    = 2
-	lv1BlockHeaderSize = 114
-	lv1BlockMaxItems   = 8
-	lv1BlockAlignSize  = 8 * 1024 // 8 KiB could get the best balance between index memory overhead & small items random access performance.
-	lv1BlockMinSize    = lv1BlockAlignSize
+	keyLenInBlock = 1
+	valLenInBlock = 4
+	minBlock      = keyLenInBlock + valLenInBlock + config.MinKeyLen + config.MinValueLen
+	// 4KB is too small for most NVMe device's nature page size.
+	// Every file write will be aligned to this value, and the min offset gap is this.
+	// Don't set it too big, because it'll waste lots of I/O when most of the items are small.
+	blockGainSize = 8 * 1024
 )
 
-func makeLv1MinBlock(buf []byte, cnt int, hs []uint64, offs []uint16, sizes []uint32) {
+var (
+	maxBlockSize = xmath.AlignSize(keyLenInBlock+valLenInBlock+config.MaxKeyLen+config.MaxValueLen, blockGainSize)
+)
 
-	off := lv1BlockCntSize
-	binary.LittleEndian.PutUint16(buf[:off], uint16(cnt))
-	for i := range hs {
-		binary.LittleEndian.PutUint64(buf[off:off+8], hs[i])
-		off += 8
-	}
-	off = lv1BlockCntSize + 8*8
-	for i := range offs {
-		binary.LittleEndian.PutUint16(buf[off:off+2], offs[i])
-		off += 2
-		binary.LittleEndian.PutUint32(buf[off:off+4], sizes[i])
-		off += 4
-	}
+func makeLv1Block(buf []byte, kLen, vLen int, key, value []byte) int {
+
+	off := 0
+	buf[0] = uint8(kLen)
+	off += keyLenInBlock
+	binary.LittleEndian.PutUint32(buf[off:], uint32(vLen))
+	off += valLenInBlock
+
+	copy(buf[off:], key)
+	off += kLen
+	copy(buf[off:], value)
+
+	return off + vLen
 }
 
-// searchInBlock searches the block of a key (returned by index),
-// return offset from the first byte of block, and value size if found (ok will be true).
+// searchInLv1Block searches the block of a key (returned by index),
+// return the value offset from the first byte of block, and its size if found.
+// return -1 if not found.
 //
 // see README.md for the details of block.
-func searchInBlock(block, key []byte) (offset uint16, size uint32, ok bool) {
+func searchInLv1Block(buf, key []byte) (offset, size int) {
 
-	cnt := binary.LittleEndian.Uint16(block[:lv1BlockCntSize])
-	if cnt == 1 {
-		offset, size = getOffsetSizeFromBlock(block, 0)
-		offset += uint16(len(key))
-		ok = true
-		return
-	}
+	eklen := len(key)
 
-	h := xxhash.Sum64(key)
+	headerSize := keyLenInBlock + valLenInBlock
 
-	ns, ok := getNFromBlock(block, int(cnt), h)
-	if !ok {
-		return 0, 0, false
-	}
-	defer intsPool.Put(ns[:0])
+	start := 0
+	for start < len(buf) {
 
-	for _, n := range ns {
-		offset, size = getOffsetSizeFromBlock(block, n)
-		if bytes.Equal(block[offset:int(offset)+len(key)], key) {
-			return offset + uint16(len(key)), size, true
+		if start+minBlock > len(buf) {
+			break
 		}
-	}
-	return 0, 0, false
-}
 
-var intsPool = sync.Pool{New: func() interface{} {
-	return make([]int, 0, 8)
-}}
+		klen := int(buf[start])
 
-// getNFromBlock gets positions which have the same hash.
-// Don't forget to put back ints to pool.
-func getNFromBlock(block []byte, cnt int, h uint64) (ns []int, ok bool) {
-
-	off := lv1BlockCntSize
-
-	ns = intsPool.Get().([]int)[:0]
-
-	for i := 0; i < lv1BlockMaxItems; i++ {
-		if h == binary.LittleEndian.Uint64(block[off:]) {
-			ns = append(ns, i)
+		if klen == 0 { // We've clean up non-block data by xor.
+			break
 		}
-		off += 8
+
+		vlen := int(binary.LittleEndian.Uint32(buf[start+1:]))
+		if klen != eklen {
+			start += klen + vlen + headerSize
+			continue
+		}
+
+		k := buf[start+headerSize : start+headerSize+klen]
+		if bytes.Equal(key, k) {
+			return start + headerSize + klen, vlen
+		}
+		start += klen + vlen + headerSize
 	}
 
-	if len(ns) == 0 {
-		intsPool.Put(ns[:0])
-		return nil, false
-	}
-
-	return ns, true
-}
-
-// n is item position. [0, cnt) .
-// offset is key_value offset from first byte of block.
-func getOffsetSizeFromBlock(block []byte, n int) (offset uint16, size uint32) {
-
-	off := lv1BlockCntSize + lv1BlockMaxItems*8 // offset_size pairs start from off.
-
-	os := block[off+n*6 : off+n*6+6]
-
-	return binary.LittleEndian.Uint16(os[:2]), binary.LittleEndian.Uint32(os[2:])
+	return -1, 0
 }

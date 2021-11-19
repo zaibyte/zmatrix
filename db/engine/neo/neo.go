@@ -238,6 +238,7 @@ func (d *Database) Set(key, value []byte) error {
 
 			atomic.AddUint64(&d.lv0Used, uint64(len(key)))
 			atomic.AddUint64(&d.lv0Used, uint64(len(value)))
+			atomic.AddUint64(&d.lv0Used, uint64(minBlock))
 			atomic.AddUint64(&d.lv0DirtyCnt, 1)
 		}
 	}()
@@ -272,6 +273,7 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 				value := values[i]
 				atomic.AddUint64(&d.lv0Used, uint64(len(key)))
 				atomic.AddUint64(&d.lv0Used, uint64(len(value)))
+				atomic.AddUint64(&d.lv0Used, uint64(minBlock))
 				atomic.AddUint64(&d.lv0DirtyCnt, 1)
 			}
 		}
@@ -393,7 +395,7 @@ func (d *Database) doTrans(compact, must bool) {
 	}
 
 	var dirty, used uint64
-	dirty = atomic.LoadUint64(&d.lv0DirtyCnt)
+	dirty = atomic.LoadUint64(&d.lv0DirtyCnt) // It's not accurate, but not harmful.
 	used = atomic.LoadUint64(&d.lv0Used)
 	var err error
 
@@ -437,13 +439,13 @@ func (d *Database) doTrans(compact, must bool) {
 		return
 	}
 
-	err = d.lv1.persistIdx(segID, idx, []byte(min), []byte(max))
+	err = d.lv1.persistIdx(segID, idx, min, max)
 	if err != nil {
 		xlog.Errorf("neo: failed to persist index: %s", err.Error())
 		return
 	}
 
-	d.lv1.addSegIdxRange(segID, idx, []byte(min), []byte(max))
+	d.lv1.addSegIdxRange(segID, idx, min, max)
 
 	iter := snap.NewIter(nil)
 	for iter.First(); iter.Valid(); iter.Next() {
@@ -454,7 +456,7 @@ func (d *Database) doTrans(compact, must bool) {
 	_ = snap.Close()
 
 	if compact {
-		_ = d.lv0.db.Compact([]byte(min), []byte(max))
+		_ = d.lv0.db.Compact(min, max)
 	}
 }
 

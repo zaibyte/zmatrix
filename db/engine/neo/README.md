@@ -22,28 +22,13 @@ It's maintained by segment tree & several trie tree.
 
 ##### Block
 
-The min size of block is 8 KiB, it could contain one or more items (at most 8).
+Every item will be written to disk in block:
 
 ```shell
-| cnt(2B) | hash(8B) * 8 | offset(2B)_size(4B) * 8 | keys_values...|
+| key_len(1B) | value_len(4B) | key | value |
 ```
 
-cnt is the actual items in this block. For most cases the cnt is 1.
-
-hash is xxhash of item's key, will take fixed 8 slots.
-
-offset is key_value's offset from the first byte in this block.
-
-size is value size.
-
-All above is header of block, and all of them are in little endian and will take 114 Bytes.
-
-For keys_values:
-
-```shell
-| key1 | value1 | key2 | value2 | ... |
-```
-
+The offset of block must be aligned to gain size, which means there maybe multi items share the same offset.
 
 ## Data Flow
 

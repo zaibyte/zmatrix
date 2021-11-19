@@ -12,6 +12,7 @@ import (
 
 	"g.tesamc.com/IT/zaipkg/vfs"
 	"g.tesamc.com/IT/zaipkg/xio"
+	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
 	"g.tesamc.com/IT/zaipkg/xmath/xrand"
 	"g.tesamc.com/IT/zmatrix/pkg/config"
 
