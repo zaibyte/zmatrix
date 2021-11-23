@@ -282,13 +282,13 @@ func (l *lv1) has(key []byte) bool {
 // search key's value if existed.
 func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 
-	start := tsc.UnixNano()
+	// start := tsc.UnixNano()
 	ids, ok := l.searchSeg(key)
 	if !ok {
 		return nil, nil, orpc.ErrNotFound
 	}
-	xlog.Debugf("cost: %.2fus for search seg for %d",
-		(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
+	// xlog.Debugf("cost: %.2fus for search seg for %d",
+	//	(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
 
 	var has bool
 	for _, id := range ids {
@@ -298,8 +298,8 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 			if !found {
 				continue
 			}
-			xlog.Debugf("cost: %.2fus for search seg & index for %d",
-				(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
+			// xlog.Debugf("cost: %.2fus for search seg & index for %d",
+			//	(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
 			offset := o.(int64)
 
 			has, value, closer, err = l.getValueFromSeg(segF, offset, key)
@@ -311,8 +311,8 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 				continue
 			}
 
-			xlog.Debugf("cost: %.2fus for found %d in %d segs",
-				(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key), len(ids))
+			// xlog.Debugf("cost: %.2fus for found %d in %d segs",
+			//	(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key), len(ids))
 			return value, closer, nil
 		}
 	}
@@ -576,7 +576,6 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 
 		itemSizeInBlock := valLenInBlock + keyLenInBlock + nk + nv
 
-		// TODO check condition? Is that 100% right?
 		if offBuf+itemSizeInBlock > bufSize { // Cannot write to buf anymore.
 
 			wn := xbytes.AlignSize(int64(originOffBuf), blockGainSize)

@@ -236,9 +236,8 @@ func (d *Database) Set(key, value []byte) error {
 	defer func() {
 		if err == nil {
 
-			atomic.AddUint64(&d.lv0Used, uint64(len(key)))
-			atomic.AddUint64(&d.lv0Used, uint64(len(value)))
-			atomic.AddUint64(&d.lv0Used, uint64(minBlock))
+			atomic.AddUint64(&d.lv0Used, uint64(minBlock+len(key)+len(value)))
+
 			atomic.AddUint64(&d.lv0DirtyCnt, 1)
 		}
 	}()
@@ -271,9 +270,8 @@ func (d *Database) SetBatch(keys, values [][]byte) error {
 			for i := range keys {
 				key := keys[i]
 				value := values[i]
-				atomic.AddUint64(&d.lv0Used, uint64(len(key)))
-				atomic.AddUint64(&d.lv0Used, uint64(len(value)))
-				atomic.AddUint64(&d.lv0Used, uint64(minBlock))
+
+				atomic.AddUint64(&d.lv0Used, uint64(minBlock+len(key)+len(value)))
 				atomic.AddUint64(&d.lv0DirtyCnt, 1)
 			}
 		}
@@ -294,15 +292,13 @@ func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
 		return nil, nil, err
 	}
 
-	// search in lv1 first, because for best performance, we should seal Database after all set done,
-	// in this case, all data are in lv1.
-	//
-	// Other reasons:
-	// 1. all meta are in memory in lv1, the searching is much faster in theory even lv0 is small.
-	v, closer, err := d.lv1.search(key)
+	// search in lv0 first:
+	// 1. If key is still in lv0, found. There won't be many keys in lv0, so the performance is acceptable.
+	// 2. If key is not found, must be lv1 if existed.
+	v, closer, err := d.lv0.get(key)
 	if err != nil {
-		if errors.Is(err, orpc.ErrNotFound) {
-			err = nil // Try to Get in lv0.
+		if errors.Is(err, pebble.ErrNotFound) {
+			err = nil // Try to Get in lv1.
 		} else {
 			return nil, nil, err
 		}
@@ -310,22 +306,16 @@ func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
 		return v, closer, nil
 	}
 
-	xlog.Debugf("not found in lv1 for key: %d, dirty: %d, state: %s",
+	xlog.Debugf("not found in lv0 for key: %d, dirty: %d, state: %s",
 		binary.BigEndian.Uint64(key), atomic.LoadUint64(&d.lv0DirtyCnt), d.GetState().String())
 
-	if atomic.LoadUint64(&d.lv0DirtyCnt) != 0 && d.GetState() == zmatrixpb.DBState_DB_Sealed {
-		v, closer, err = d.lv0.get(key)
-		if err != nil {
-			if errors.Is(err, pebble.ErrNotFound) {
-
-				return d.lv1.search(key) // check lv1 again.
-			}
-		}
-
-		return v, closer, err
+	v, closer, err = d.lv1.search(key)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return nil, nil, orpc.ErrNotFound
+	return v, closer, err
+
 }
 
 func (d *Database) getCheck() (err error) {

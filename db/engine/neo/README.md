@@ -25,10 +25,10 @@ It's maintained by segment tree & several trie tree.
 Every item will be written to disk in block:
 
 ```shell
-| key_len(1B) | value_len(4B) | key | value |
+| key_len(1B) | value_len(4B) | key | value | ... |
 ```
 
-The offset of block must be aligned to gain size, which means there maybe multi items share the same offset.
+There maybe multi items share the same offset, then sequential search the block.
 
 ## Data Flow
 

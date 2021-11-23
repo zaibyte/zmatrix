@@ -61,7 +61,9 @@ func TestDatabase_Get(t *testing.T) {
 
 		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
 		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
-
+		if vLen == 0 {
+			vLen = 1
+		}
 		err = d.Set(keyBuf[:kLen], valBuf[:vLen])
 		if err != nil {
 			t.Fatal(err)
@@ -76,6 +78,9 @@ func TestDatabase_Get(t *testing.T) {
 		keys[i-cnt/2] = make([]byte, kLen)
 		binary.BigEndian.PutUint64(keys[i-cnt/2], uint64(1024-i))
 		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
+		if vLen == 0 {
+			vLen = 1
+		}
 		values[i-cnt/2] = make([]byte, vLen)
 		copy(values[i-cnt/2], valBuf)
 
@@ -170,7 +175,9 @@ func TestDatabase_GetWithTrans(t *testing.T) {
 
 		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
 		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
-
+		if vLen == 0 {
+			vLen = 1
+		}
 		err = d.Set(keyBuf[:kLen], valBuf[:vLen])
 		if err != nil {
 			t.Fatal(err)
@@ -211,11 +218,11 @@ func TestDatabase_GetWithTrans(t *testing.T) {
 				vact, closer, err := d.Get(key)
 				if err != nil {
 					t.Error(err)
+				} else {
+					assert.Equal(t, valBuf[:v], vact)
+
+					_ = closer.Close()
 				}
-
-				assert.Equal(t, valBuf[:v], vact)
-
-				_ = closer.Close()
 			}
 			break
 		}
@@ -282,7 +289,9 @@ func TestDatabase_Load(t *testing.T) {
 
 		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
 		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
-
+		if vLen == 0 {
+			vLen = 1
+		}
 		err = d.Set(keyBuf[:kLen], valBuf[:vLen])
 		if err != nil {
 			t.Fatal(err)
@@ -402,7 +411,9 @@ func TestDatabase_LoadAfterTrans(t *testing.T) {
 
 		// vLen := xrand.Uint32n(uint32(config.MaxValueLen))
 		vLen := xrand.Uint32n(uint32(config.MaxValueLen / 4)) // Avoiding too slow testing.
-
+		if vLen == 0 {
+			vLen = 1
+		}
 		err = d.Set(keyBuf[:kLen], valBuf[:vLen])
 		if err != nil {
 			t.Fatal(err)
