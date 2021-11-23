@@ -466,4 +466,5 @@ func TestDatabase_LoadAfterTrans(t *testing.T) {
 
 		_ = closer.Close()
 	}
+
 }

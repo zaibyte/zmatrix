@@ -41,6 +41,7 @@ package urpc
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"runtime"
@@ -215,6 +216,11 @@ func (c *Client) Set(db uint32, key, value []byte) error {
 	}
 
 	_, _, err := c.call(db, setMethod, key, value)
+
+	if errors.Is(err, orpc.ErrTooManyRequests) {
+		return xerrors.WithMessage(err, "set too fast, please wait for a while")
+	}
+
 	return err
 }
 
@@ -238,6 +244,9 @@ func (c *Client) SetBatch(db uint32, keys, values [][]byte) error {
 	value, closer := compactSetBatchReq(keys, values)
 	defer closer.Close()
 	_, _, err := c.call(db, setBatchMethod, nil, value)
+	if errors.Is(err, orpc.ErrTooManyRequests) {
+		return xerrors.WithMessage(err, "set too fast, please wait for a while")
+	}
 	return err
 }
 
