@@ -266,27 +266,13 @@ func (l *lv1) has(key []byte) bool {
 	}
 
 	for _, id := range ids {
-		segF, idx, ok := l.getSeg(id)
-		if ok { // Ensure there is no memory order issues.
-			o, found := idx.SlimTrie.RangeGet(xstrconv.ToString(key))
+		_, idx, got := l.getSeg(id)
+		if got { // Ensure there is no memory order issues.
+			_, found := idx.SlimTrie.RangeGet(xstrconv.ToString(key))
 			if !found {
 				continue
-			}
-			offset := o.(int64)
-
-			buf := xbytes.GetAlignedBytes(blockGainSize)
-
-			err := l.sched.DoSync(xio.ReqObjRead, segF, offset, buf)
-			if err != nil {
-				xbytes.PutAlignedBytes(buf)
-				continue
-			}
-
-			off, _ := searchInLv1Block(buf, key)
-			if off == -1 {
-				continue
 			} else {
-				return true
+				return true // SlimTrie has extremely low false positive rate. Avoiding disk scan by return true directly.
 			}
 		}
 	}
@@ -315,6 +301,7 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 			xlog.Debugf("cost: %.2fus for search seg & index for %d",
 				(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
 			offset := o.(int64)
+
 			has, value, closer, err = l.getValueFromSeg(segF, offset, key)
 			if err != nil || !has {
 				if err == nil && !has {
@@ -503,10 +490,8 @@ func makeSegIdxPath(segsPath string, id int64) string {
 // segment file will be added in memory.
 //
 // minSize is key + value size for this snapshot counted by neo.
-//
-// TODO it's slow in present, I should take full advantage of buf.
 func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
-	id int64, idx *index.SlimIndex, min, max []byte, err error) {
+	id int64, idx *index.SlimIndex, min, max []byte, added int, err error) {
 
 	var segF vfs.File
 	defer func() {
@@ -550,32 +535,53 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 
 	existed := 0 // existed key in lv1, jump over these items.
 
-	for _, item := range items {
+	lastEntryAlignGain := int64(0) // last entry starts at offset which aligned gain.
+
+	for j, item := range items {
 
 		key := xstrconv.ToBytes(item.Key)
+
+		if l.has(key) {
+			existed++
+			continue
+		}
+
 		val, closer, err2 := snap.Get(key)
 		if err2 != nil {
-			return 0, nil, nil, nil, err2
+			err = err2
+			return
 		}
 
 		nk := len(item.Key)
 		nv := len(val)
 
+		// Offset in seg file aligned to gain.
 		itemOff := xmath.AlignToLast(offWritten+int64(offBuf), blockGainSize)
 		valOff := xmath.AlignToLast(offWritten+int64(offBuf)+valLenInBlock+keyLenInBlock+int64(nk), blockGainSize)
 
-		orginOffBuf := offBuf
+		originOffBuf := offBuf
 		if itemOff != valOff { // Expect key_len, val_len, key are in the same gain.
-			offBuf = int(xmath.AlignSize(int64(offBuf), blockGainSize)) // Move to next align.
+			offBuf = int(xmath.AlignToLast(int64(offBuf), blockGainSize)) + blockGainSize // Move item to next gain.
 		}
+
+		itemOff = xmath.AlignToLast(offWritten+int64(offBuf), blockGainSize)
+		if itemOff != offWritten+int64(offBuf) { // offBuf is not aligned to gain.
+			if itemOff != lastEntryAlignGain { // Move to next gain if itemOff is not started with an entry.
+				offBuf = int(xmath.AlignToLast(int64(offBuf), blockGainSize)) + blockGainSize
+			}
+		}
+
+		// itemOff(offBuf) could be satisfied with these properties now:
+		// itemOff is started with an entry (this one or another one which is in the same gain with this item).
 
 		itemSizeInBlock := valLenInBlock + keyLenInBlock + nk + nv
 
-		if int(xbytes.AlignSize(int64(offBuf), blockGainSize))+itemSizeInBlock > bufSize { // Cannot write to buf anymore.
+		// TODO check condition? Is that 100% right?
+		if offBuf+itemSizeInBlock > bufSize { // Cannot write to buf anymore.
 
-			wn := xbytes.AlignSize(int64(offBuf), blockGainSize)
+			wn := xbytes.AlignSize(int64(originOffBuf), blockGainSize)
 
-			xorsimd.Bytes(buf[orginOffBuf:wn], buf[orginOffBuf:wn], buf[orginOffBuf:wn]) // Clean up extra bytes.
+			xorsimd.Bytes(buf[originOffBuf:wn], buf[originOffBuf:wn], buf[originOffBuf:wn]) // Clean up extra bytes.
 
 			err = l.sched.DoSync(xio.ReqChunkWrite, segF, offWritten, buf[:wn]) // Using chunk write, because it's big I/O in most cases.
 			if err != nil {
@@ -586,17 +592,20 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 			offBuf = 0 // Next round will begin with the beginning.
 		}
 
-		if l.has(key) {
-			existed++
-			_ = closer.Close()
-			continue
-		}
+		itemOff = xmath.AlignToLast(offWritten+int64(offBuf), blockGainSize)
+
+		added++
 
 		n := makeLv1Block(buf[offBuf:], nk, nv, key, val)
 
-		item.Offset = itemOff
+		items[j].Offset = itemOff
 
 		_ = closer.Close()
+
+		if xmath.AlignToLast(offWritten+int64(offBuf), blockGainSize) == offWritten+int64(offBuf) { // offset is aligned to gain.
+			lastEntryAlignGain = offWritten + int64(offBuf)
+		}
+
 		offBuf += n
 	}
 
@@ -624,7 +633,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 	xlog.Infof("persist seg file done for seg_id: %d with %d items in %.2fMB",
 		id, len(items)-existed, float64(segFSize)/float64(1024*1024))
 
-	return id, idx, []byte(items[0].Key), []byte(items[len(items)-1].Key), nil
+	return id, idx, []byte(items[0].Key), []byte(items[len(items)-1].Key), added, nil
 }
 
 func (l *lv1) addSeg(id int64, segF vfs.File) {

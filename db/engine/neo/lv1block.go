@@ -57,7 +57,7 @@ func searchInLv1Block(buf, key []byte) (offset, size int) {
 
 		klen := int(buf[start])
 
-		if klen == 0 { // We've clean up non-block data by xor.
+		if klen == 0 {
 			break
 		}
 

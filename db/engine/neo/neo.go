@@ -433,7 +433,7 @@ func (d *Database) doTrans(compact, must bool) {
 	// 5. delete one by one in lv0 (dedup in next trans process if crash in deletion)
 
 	snap := d.lv0.getSnapshot()
-	segID, idx, min, max, err := d.lv1.makeSegIdx(snap, int(dirty), int64(used))
+	segID, idx, min, max, _, err := d.lv1.makeSegIdx(snap, int(dirty), int64(used))
 	if err != nil {
 		xlog.Errorf("neo: failed to make segment & index: %s", err.Error())
 		return
