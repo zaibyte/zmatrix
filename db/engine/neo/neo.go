@@ -1,7 +1,6 @@
 package neo
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -130,7 +129,7 @@ func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler, i
 	}
 
 	var err error
-	d.lv0, err = loadLv0(path, fs, isSealed) // TODO recalculate dirty at loading.
+	d.lv0, err = loadLv0(path, fs, isSealed)
 	if err != nil {
 		return nil, err
 	}
@@ -139,15 +138,17 @@ func Load(cfg *Config, id uint32, path string, fs vfs.FS, sched xio.Scheduler, i
 	for iter.First(); iter.Valid(); iter.Next() {
 		k := iter.Key()
 		d.lv0DirtyCnt++
-		d.lv0Used += uint64(len(k))
-		d.lv0Used += uint64(len(iter.Value()))
+		d.lv0Used += uint64(len(k) + len(iter.Value()) + keyLenInBlock + valLenInBlock)
 	}
 	_ = iter.Close()
 
 	if isSealed && d.lv0DirtyCnt == 0 {
 		_ = d.lv0.close()
 		d.lv0 = nil
+		xlog.Infof("database: %d is sealed & lv0 is empty", d.id)
 	}
+
+	xlog.Debugf("database: %d load lv0 with items: %d used: %d bytes", d.id, d.lv0DirtyCnt, d.lv0Used)
 
 	d.lv1, err = loadLv1(path, fs, sched)
 	if err != nil {
@@ -295,21 +296,22 @@ func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
 	// search in lv0 first:
 	// 1. If key is still in lv0, found. There won't be many keys in lv0, so the performance is acceptable.
 	// 2. If key is not found, must be lv1 if existed.
-	v, closer, err := d.lv0.get(key)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			err = nil // Try to Get in lv1.
+
+	if d.lv0 != nil {
+
+		v, closer, err := d.lv0.get(key)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				err = nil // Try to Get in lv1.
+			} else {
+				return nil, nil, err
+			}
 		} else {
-			return nil, nil, err
+			return v, closer, nil
 		}
-	} else {
-		return v, closer, nil
 	}
 
-	xlog.Debugf("not found in lv0 for key: %d, dirty: %d, state: %s",
-		binary.BigEndian.Uint64(key), atomic.LoadUint64(&d.lv0DirtyCnt), d.GetState().String())
-
-	v, closer, err = d.lv1.search(key)
+	v, closer, err := d.lv1.search(key)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -418,9 +420,8 @@ func (d *Database) doTrans(compact, must bool) {
 
 	// 1. write down seg
 	// 2. making lv1 index
-	// 3. write down lv1 index
-	// 4. update index in lv1
-	// 5. delete one by one in lv0 (dedup in next trans process if crash in deletion)
+	// 3. write down lv1 index & update index in lv1 ( done persistIdx)
+	// 4. delete one by one in lv0 (dedup in next trans process if crash in deletion)
 
 	snap := d.lv0.getSnapshot()
 	segID, idx, min, max, _, err := d.lv1.makeSegIdx(snap, int(dirty), int64(used))
@@ -434,8 +435,6 @@ func (d *Database) doTrans(compact, must bool) {
 		xlog.Errorf("neo: failed to persist index: %s", err.Error())
 		return
 	}
-
-	d.lv1.addSegIdxRange(segID, idx, min, max)
 
 	iter := snap.NewIter(nil)
 	for iter.First(); iter.Valid(); iter.Next() {
