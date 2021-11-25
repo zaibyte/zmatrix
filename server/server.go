@@ -49,6 +49,7 @@ func Create(ctx context.Context, cfg *config.Config) (*Server, error) {
 	}
 
 	var err error
+	s.cfg.Manager.InstanceID = cfg.App.InstanceID
 	s.mgr, err = mgr.New(s.ctx, s.fs, s.vdisk, &s.cfg.Manager)
 	if err != nil {
 		return nil, err

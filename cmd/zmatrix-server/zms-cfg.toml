@@ -1,0 +1,9 @@
+title = "zmatrix-server"
+
+[app]
+instance_id = "cn-sz-001-0001"
+
+server_addr = "/home/xxx/zmatrix.uds"
+
+[manager]
+data_root = "/home/xxx/zmatrix"
