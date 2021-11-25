@@ -14,6 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"g.tesamc.com/IT/zaipkg/xtest"
+
+	"github.com/openacid/low/size"
+
 	"g.tesamc.com/IT/zaipkg/directio"
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xio"
@@ -27,6 +31,42 @@ import (
 	"github.com/openacid/slim/index"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestIdxMemoryUsage(t *testing.T) {
+
+	if !xtest.IsPropEnabled() {
+		t.Skip("prop testing is not enabled")
+	}
+
+	t.Logf("4194304 kv will take %.2f bits for each key as index", idxMem(4194304))
+}
+
+func idxMem(keyCnt int) float64 {
+
+	items := make([]index.OffsetIndexItem, keyCnt)
+
+	key := make([]byte, 8)
+	off := int64(0)
+	for i := range items {
+
+		if i > 0 && i%20 == 0 {
+			off += blockGainSize
+		}
+
+		binary.BigEndian.PutUint64(key, uint64(i))
+		items[i].Key = string(key)
+		items[i].Offset = off
+	}
+
+	idx, err := index.NewSlimIndex(items, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	sz := size.Of(idx)
+
+	return float64(sz) * 8 / float64(keyCnt)
+}
 
 func TestIdxItemsSort(t *testing.T) {
 
@@ -333,51 +373,6 @@ func TestLv1MakeSearchSeg(t *testing.T) {
 	wg.Wait()
 }
 
-func TestFindSegPairs(t *testing.T) {
-
-	l := &lv1{}
-
-	testCases := []struct {
-		ns         []string
-		expValid   map[string]struct{}
-		expInValid []string
-	}{
-		{
-			[]string{},
-			nil,
-			nil,
-		},
-		{
-			[]string{"1.seg", "1.idx"},
-			map[string]struct{}{"1": struct{}{}},
-			nil,
-		},
-		{
-			[]string{"1.seg", "1.idx", "2.idx"},
-			map[string]struct{}{"1": struct{}{}},
-			[]string{"2.idx"},
-		},
-		{
-			[]string{"1.seg", "1.idx", "2.seg"},
-			map[string]struct{}{"1": struct{}{}},
-			[]string{"2.seg"},
-		},
-		{
-			[]string{"1.seg", "1.idx", "2.idx", "2", "3"},
-			map[string]struct{}{"1": struct{}{}},
-			[]string{"2.idx", "2", "3"},
-		},
-	}
-
-	for _, tc := range testCases {
-		sort.Strings(tc.expInValid)
-		valid, invalid := l.findSegPairs(tc.ns)
-		sort.Strings(invalid)
-		assert.Equal(t, tc.expValid, valid)
-		assert.Equal(t, tc.expInValid, invalid)
-	}
-}
-
 func TestLv1PersistIdx(t *testing.T) {
 
 	fs := testFS
@@ -626,4 +621,50 @@ func TestLv1Load(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestSearchSeg(t *testing.T) {
+
+	fs := testFS
+
+	dbPath := filepath.Join(os.TempDir(), "neo.lv1", fmt.Sprintf("%d", xrand.Uint32()))
+
+	err := fs.MkdirAll(dbPath, 0700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.RemoveAll(dbPath)
+
+	l, err := createLv1(dbPath, fs, &xio.NopScheduler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.close()
+
+	min, max := make([]byte, 8), make([]byte, 8)
+	begin := uint64(0)
+	for i := 0; i < 28; i++ {
+		binary.BigEndian.PutUint64(min, begin)
+		begin += 4196090
+		binary.BigEndian.PutUint64(max, begin)
+		l.addRange(min, max)
+		begin += 1
+	}
+
+	key := make([]byte, 8)
+	mid := uint64(4196090) / 2
+	for i := 0; i < 28; i++ {
+		binary.BigEndian.PutUint64(key, mid)
+		ids, ok := l.searchSeg(key)
+		if !ok {
+			t.Fatal("seg must be searched")
+		}
+		if len(ids) != 1 {
+			t.Fatal("total seg count must be 1")
+		}
+		if ids[0] != i {
+			t.Fatalf("seg mismatched, exp: %d, got: %d", i, ids[0])
+		}
+		mid += 4196090
+	}
 }
