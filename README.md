@@ -18,6 +18,23 @@ Maybe is the best, not just one of the best.
 
 ## Performance
 
+### Memory Overhead
+
+zMatrix is using pure memory as index but only use incredible space, as [test](db/engine/neo/lv0_test.go) shows:
+
+```shell
+➜  neo git:(master) ✗ go test -v -run="IdxMemoryUsage"
+=== RUN   TestIdxMemoryUsage
+    lv1_test.go:39: 4194304 kv will take 4.55 bits for each key as index
+--- PASS: TestIdxMemoryUsage (1.08s)
+PASS
+ok      g.tesamc.com/IT/zmatrix/db/engine/neo   3.534s
+```
+
+For 8 bytes length key, each kv will only take 4.55bits as location index (key to disk position).
+
+### I/O
+
 Hundreds of thousands of IOPS for random read with low latency.
 
 About 10 millions k-v pairs: Key is 8 Bytes. Value is 900 Bytes. (1.15Bytes for each k-v pair's memory index)
