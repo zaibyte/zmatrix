@@ -6,10 +6,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
-
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zaipkg/xlog"
+
+	"g.tesamc.com/IT/zaipkg/xmath/xrand"
 
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
 
@@ -26,16 +26,18 @@ type jober struct {
 
 	buf         []byte
 	isDoNothing bool
+	ignoreError bool
 
 	oids []uint64
 }
 
-func newJober(client xrpc.Client, valSize int64, isDoNothing bool) *jober {
+func newJober(client xrpc.Client, valSize int64, isDoNothing, ignoreError bool) *jober {
 
 	return &jober{
 		client:      client,
 		buf:         make([]byte, valSize),
 		isDoNothing: isDoNothing,
+		ignoreError: ignoreError,
 	}
 }
 
@@ -53,7 +55,9 @@ func (j *jober) get(key []byte) (bool, int64) {
 	cost := tsc.UnixNano() - start
 	if err != nil {
 		if errors.Is(err, orpc.ErrNotFound) {
-			xlog.Fatalf("failed to get, not found for key: %d", binary.BigEndian.Uint64(key))
+			if !j.ignoreError {
+				xlog.Fatalf("failed to get, not found for key: %d", binary.BigEndian.Uint64(key))
+			}
 		}
 		return false, cost
 	}

@@ -36,6 +36,10 @@ func (r *Runner) prepareRead() (setCost int64, cntTooManyRequest int) {
 
 	log.Printf("prepare with: %d items\n", r.keyMax+1)
 
+	if r.cfg.PrepareDone {
+		return
+	}
+
 	keys := make([][]byte, eachBatch)
 	for i := range keys {
 		keys[i] = make([]byte, 8)

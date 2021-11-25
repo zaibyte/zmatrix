@@ -106,7 +106,7 @@ func (r *Runner) Run() (err error) {
 
 	r.getJobers = make([]*jober, r.cfg.GetThreads)
 	for i := range r.getJobers {
-		r.getJobers[i] = newJober(r.client, int64(r.cfg.ValSize), r.cfg.IsDoNothing)
+		r.getJobers[i] = newJober(r.client, int64(r.cfg.ValSize), r.cfg.IsDoNothing, r.cfg.IgnoreError)
 	}
 
 	randFillVal(int64(r.cfg.ValSize))

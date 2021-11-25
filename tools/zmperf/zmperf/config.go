@@ -34,6 +34,11 @@ type Config struct {
 
 	// PrintLog prints log to stdout or not.
 	PrintLog bool `toml:"print_log"`
+
+	PrepareDone bool `toml:"prepare_done"`
+
+	// Ignore any error, by default process will fatal when there is a not found error.
+	IgnoreError bool `toml:"ignore_error"`
 }
 
 var jobTypes = map[string]int{
