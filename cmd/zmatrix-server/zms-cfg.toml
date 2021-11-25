@@ -1,9 +1,12 @@
 title = "zmatrix-server"
 
+server_addr = "/home/xxx/zmatrix.uds"
+
 [app]
 instance_id = "cn-sz-001-0001"
 
-server_addr = "/home/xxx/zmatrix.uds"
+[app.log]
+output="/home/xxx/zmatrix-error.log"
 
 [manager]
 data_root = "/home/xxx/zmatrix"

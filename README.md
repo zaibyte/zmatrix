@@ -99,6 +99,37 @@ percentiles (nsec):
 | 99.99th=[3071999]
 ```
 
+For ~100 millions items (8B key, 187B value), 128 threads random read through UDS:
+
+```shell
+xxx@tes_of03:~$ ./zmp -c zmp.toml
+2021/11/25 13:42:47 start to prepare read
+2021/11/25 13:42:47 prepare with: 114836108 items
+2021/11/25 13:42:47 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
+config
+-------------
+&zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"rpc", jobType:1, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:128, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"/home/xxx/zmatrix.uds", PrintLog:false, PrepareDone:true, IgnoreError:false}
+-------------
+summary
+-------------
+job time: 200000.57037ms
+get: 2621440MB
+-------------
+get ok: 54627945, failed: 0
+iops
+get avg: 273.14k/s
+-------------
+latency
+-------------
+get min: 74944, avg: 468648.68, max: 10174463
+percentiles (nsec):
+|  1.00th=[127487],  5.00th=[157567], 10.00th=[181247], 20.00th=[229759],
+| 30.00th=[292351], 40.00th=[357119], 50.00th=[422655], 60.00th=[491007],
+| 70.00th=[567295], 80.00th=[662527], 90.00th=[808447], 95.00th=[946687],
+| 99.00th=[1301503], 99.50th=[1505279], 99.90th=[2177023], 99.95th=[2535423],
+| 99.99th=[3483647]
+```
+
 ### P.S.
 
 1. The more data, the IOPS maybe higher. Mechanism of parallelism inside NVMe device maybe the reason, need more research.
