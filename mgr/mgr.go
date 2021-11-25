@@ -166,6 +166,7 @@ func (m *Mgr) Start() error {
 
 			if isBroken {
 				boot.SetState(zmatrixpb.DBState_DB_Broken)
+				xlog.Warnf("database: %d is broken at starting", i)
 			}
 
 			m.setDB(uint32(i), &DB{
