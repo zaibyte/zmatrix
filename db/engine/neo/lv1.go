@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"unsafe"
 
@@ -32,7 +31,6 @@ import (
 	"github.com/openacid/slim/trie"
 	"github.com/spf13/cast"
 	"github.com/templexxx/bsegtree"
-	"github.com/templexxx/tsc"
 	"github.com/templexxx/xorsimd"
 )
 
@@ -113,6 +111,12 @@ func loadLv1(dbPath string, fs vfs.FS, sched xio.Scheduler) (l *lv1, err error) 
 		return nil, err
 	}
 
+	btp := atomic.LoadPointer(&l.ranges)
+
+	bt := (*bsegtree.BSTree)(btp)
+
+	xlog.Debugf("all ranges: %v", bt.GetAll())
+
 	return
 }
 
@@ -132,114 +136,100 @@ func (l *lv1) load() (err error) {
 	// 4. add seg & idx to lv1
 	fs := l.fs
 	segDir := l.segsPath
+
 	ns, err := fs.List(segDir)
 	if err != nil {
 		return err
 	}
 
-	segs, waitRemoved := l.findSegPairs(ns)
-
-	maxID := int64(-1)
+	maxSegID, err := l.findSegPairs(ns)
+	if err != nil {
+		return err
+	}
+	if maxSegID == -1 {
+		return nil
+	}
 
 	idxBuf := directio.AlignedBlock(segIdxLoadBufSize)
-	for ids := range segs {
+	for id := 0; id <= maxSegID; id++ {
 
-		id := cast.ToInt64(ids)
-		if id > maxID {
-			maxID = id
-		}
-
-		err = l.loadSeg(ids, idxBuf)
+		err = l.loadSeg(int64(id), idxBuf)
 		if err != nil {
-			if errors.Is(err, orpc.ErrChecksumMismatch) { // Regard as short-write caused by interruption.
-				waitRemoved = append(waitRemoved, ids+segSuffix)
-				waitRemoved = append(waitRemoved, ids+segIdxSuffix)
+			if errors.Is(err, orpc.ErrChecksumMismatch) && id == maxSegID { // Regard as short-write caused by interruption.
+
+				_ = l.fs.RemoveAll(makeSegPath(l.segsPath, int64(id)))
+				_ = l.fs.RemoveAll(makeSegIdxPath(l.segsPath, int64(id)))
+
 				err = nil
 			}
 		}
 		if err != nil { // Non checksum error.
-			err = xerrors.WithMessage(err, fmt.Sprintf("failed to load seg: %s", ids))
+			err = xerrors.WithMessage(err, fmt.Sprintf("failed to load seg: %d", id))
 			return err
 		}
+		xlog.Debugf("load lv1 seg ok: %s", filepath.Join(l.segsPath, cast.ToString(id)))
 	}
 
-	for _, rm := range waitRemoved {
-		_ = fs.Remove(filepath.Join(segDir, rm))
-	}
-
-	l.nextSegID = maxID + 1
+	l.nextSegID = int64(maxSegID) + 1
 
 	return nil
 }
 
 // findSegPairs find out seg & index file pairs by checking filenames.
-func (l *lv1) findSegPairs(ns []string) (valid map[string]struct{}, invalid []string) {
+//
+// It will check segment file & index file pairs from seg_0 until reach the last one.
+// Only last segment file could have incomplete/non-existed index file.
+func (l *lv1) findSegPairs(ns []string) (maxSegID int, err error) {
 
-	valid = make(map[string]struct{})
-	idxs := make(map[string]struct{})
-	invalid = make([]string, 0, len(ns))
-
-	for _, n := range ns {
-
-		shouldRm := true
-		if strings.HasSuffix(n, segSuffix) {
-
-			ids := strings.TrimSuffix(n, segSuffix)
-			_, err := cast.ToInt64E(ids)
-			if err == nil {
-				shouldRm = false
-				valid[ids] = struct{}{}
-			}
-		} else if strings.HasSuffix(n, segIdxSuffix) {
-			ids := strings.TrimSuffix(n, segIdxSuffix)
-			_, err := cast.ToInt64E(ids)
-			if err == nil {
-				shouldRm = false
-				idxs[ids] = struct{}{}
-			}
-		}
-
-		if shouldRm {
-			invalid = append(invalid, n)
-		}
-		shouldRm = true
+	allFns := make(map[string]struct{})
+	for _, fn := range ns {
+		allFns[filepath.Join(l.segsPath, fn)] = struct{}{}
 	}
 
-	noSeg := make([]string, 0, len(idxs))
-	for k := range idxs {
-		if _, ok := valid[k]; !ok { // has index file but no seg
-			invalid = append(invalid, k+segIdxSuffix)
-			noSeg = append(noSeg, k)
+	// 1. find max segment file
+	maxSegID = -1
+	for i := 0; i < maxSegs; i++ {
+		segFn := makeSegPath(l.segsPath, int64(i))
+		if _, ok := allFns[segFn]; ok {
+			maxSegID = i
+		} else {
+			break
 		}
 	}
-	for _, ids := range noSeg {
-		delete(idxs, ids)
+
+	if maxSegID == -1 {
+		return
 	}
 
-	noIdx := make([]string, 0, len(valid))
-	for k := range valid {
-		if _, ok := idxs[k]; !ok { // has seg file but no index
-			invalid = append(invalid, k+segSuffix)
-			noIdx = append(noIdx, k)
+	// 2. check maxSegID's index
+	if _, ok := allFns[makeSegIdxPath(l.segsPath, int64(maxSegID))]; !ok {
+		maxSegID--
+	}
+
+	// 3. segment file & index must be existed in [0, maxSegID]
+	reserved := make(map[string]struct{})
+	for i := 0; i <= maxSegID; i++ {
+		idxFn := makeSegIdxPath(l.segsPath, int64(i))
+		if _, ok := allFns[idxFn]; !ok {
+			return maxSegID, zmerrors.ErrDatabaseBroken
+		}
+		reserved[idxFn] = struct{}{}
+		reserved[makeSegPath(l.segsPath, int64(i))] = struct{}{}
+	}
+
+	// 4. clean up all files which aren't segment / index.
+	for fn := range allFns {
+		if _, ok := reserved[fn]; !ok {
+			_ = l.fs.RemoveAll(fn)
 		}
 	}
-	for _, ids := range noIdx {
-		delete(valid, ids)
-	}
 
-	if len(valid) == 0 {
-		valid = nil
-	}
-	if len(invalid) == 0 {
-		invalid = nil
-	}
-
-	return
+	return maxSegID, nil
 }
 
-func (l *lv1) loadSeg(ids string, buf []byte) error {
+func (l *lv1) loadSeg(id int64, buf []byte) error {
 
-	id := cast.ToInt64(ids)
+	ids := cast.ToString(id)
 
 	segFn := filepath.Join(l.segsPath, ids+segSuffix)
 	idxFn := filepath.Join(l.segsPath, ids+segIdxSuffix)
@@ -285,17 +275,23 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 	// start := tsc.UnixNano()
 	ids, ok := l.searchSeg(key)
 	if !ok {
+		xlog.Warnf("failed to search seg in ranges: not found")
 		return nil, nil, orpc.ErrNotFound
 	}
+
 	// xlog.Debugf("cost: %.2fus for search seg for %d",
 	//	(float64(tsc.UnixNano())-float64(start))/1000, binary.BigEndian.Uint64(key))
 
 	var has bool
 	for _, id := range ids {
+
+		xlog.Debugf("found key: %d in seg: %d", bsegtree.AbbreviatedKey(key), id)
+
 		segF, idx, ok := l.getSeg(id)
 		if ok { // Ensure there is no memory order issues.
 			o, found := idx.SlimTrie.RangeGet(xstrconv.ToString(key))
 			if !found {
+				xlog.Warnf("failed to search trie tree: not found key: %d", bsegtree.AbbreviatedKey(key))
 				continue
 			}
 			// xlog.Debugf("cost: %.2fus for search seg & index for %d",
@@ -307,7 +303,7 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 				if err == nil && !has {
 					err = orpc.ErrNotFound
 				}
-				xlog.Warnf("failed to read seg: %s", err.Error())
+				xlog.Warnf("failed to search from seg file: %s", err.Error())
 				continue
 			}
 
@@ -321,7 +317,7 @@ func (l *lv1) search(key []byte) (value []byte, closer io.Closer, err error) {
 
 func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byte, io.Closer, error) {
 
-	startT := tsc.UnixNano()
+	// startT := tsc.UnixNano()
 
 	buf := xbytes.GetAlignedBytes(blockGainSize)
 
@@ -332,8 +328,8 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 		return false, nil, nil, err
 	}
 
-	xlog.Debugf("cost: %.2fus for read value of %d in file",
-		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
+	// xlog.Debugf("cost: %.2fus for read value of %d in file",
+	//	(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 
 	off, size := searchInLv1Block(buf, key)
 	if off == -1 {
@@ -341,15 +337,15 @@ func (l *lv1) getValueFromSeg(f vfs.File, offset int64, key []byte) (bool, []byt
 		return false, nil, nil, nil
 	}
 
-	xlog.Debugf("cost: %.2fus for read + search value of %d in file",
-		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
+	// xlog.Debugf("cost: %.2fus for read + search value of %d in file",
+	//	(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 
 	start := off
 	end := start + size
 
 	if end <= blockGainSize { // It's in this block.
-		xlog.Debugf("cost: %.2fus for read small value in block of %d in file",
-			(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
+		//	xlog.Debugf("cost: %.2fus for read small value in block of %d in file",
+		//		(float64(tsc.UnixNano())-float64(startT))/1000, binary.BigEndian.Uint64(key))
 		return true, buf[start:end], xbytes.PoolAlignedBytesCloser{P: buf}, nil
 	}
 
@@ -459,7 +455,7 @@ func (l *lv1) makeSegFile(minSize int64) (f vfs.File, id int64, err error) {
 		}
 	}()
 
-	if id >= 1024 {
+	if id >= maxSegs {
 		return nil, 0, xerrors.WithMessage(zmerrors.ErrDatabaseFull, "lv1 is full of 1024 segments")
 	}
 
@@ -537,6 +533,7 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 
 	lastEntryAlignGain := int64(0) // last entry starts at offset which aligned gain.
 
+	maxIdx := -1
 	for j, item := range items {
 
 		key := xstrconv.ToBytes(item.Key)
@@ -545,6 +542,13 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 			existed++
 			continue
 		}
+
+		if min == nil {
+			min = make([]byte, len(item.Key))
+			copy(min, item.Key)
+		}
+
+		maxIdx = j
 
 		val, closer, err2 := snap.Get(key)
 		if err2 != nil {
@@ -622,6 +626,10 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 		segFSize += wn
 	}
 
+	if added == 0 {
+		return id, nil, nil, nil, added, nil
+	}
+
 	idx, err = index.NewSlimIndex(items, nil)
 	if err != nil {
 		return
@@ -632,7 +640,9 @@ func (l *lv1) makeSegIdx(snap *pebble.Snapshot, dirtyCnt int, minSize int64) (
 	xlog.Infof("persist seg file done for seg_id: %d with %d items in %.2fMB",
 		id, len(items)-existed, float64(segFSize)/float64(1024*1024))
 
-	return id, idx, []byte(items[0].Key), []byte(items[len(items)-1].Key), added, nil
+	max = []byte(items[maxIdx].Key) // Must have, because added != 0.
+
+	return id, idx, min, max, added, nil
 }
 
 func (l *lv1) addSeg(id int64, segF vfs.File) {
@@ -640,12 +650,15 @@ func (l *lv1) addSeg(id int64, segF vfs.File) {
 }
 
 // addSegIdxRange adds new index & range to lv1.
+// must be invoked by segment id asc order.
 func (l *lv1) addSegIdxRange(id int64, idx *index.SlimIndex, min, max []byte) {
 
 	l.addSegIdx(id, idx)
 	// addRange must be the last operation of add seg, add segIdx, addRange.
 	// Otherwise, we may search the right seg but without seg file & seg index result. (on X86, Stores are not reordered with other stores)
 	l.addRange(min, max)
+
+	xlog.Infof("seg idx & range [%d, %d] added: %d", bsegtree.AbbreviatedKey(min), bsegtree.AbbreviatedKey(max), id)
 }
 
 func (l *lv1) addSegIdx(id int64, idx *index.SlimIndex) {
