@@ -142,6 +142,7 @@ func (m *Mgr) Start() error {
 			}
 
 			// There is a database.
+			xlog.Debugf("try to load db in: %s", dbDir)
 
 			var d db.DB
 			isBroken := false
@@ -155,6 +156,7 @@ func (m *Mgr) Start() error {
 				if err != nil {
 					err = xerrors.WithMessagef(err, "failed to load database: %d", i)
 					xlog.Warn(err.Error())
+
 					d, _ = neo.CreateBroken(uint32(i), dbDir)
 					isBroken = true
 				} else {
@@ -181,7 +183,7 @@ func (m *Mgr) Start() error {
 
 	m.startBackgroundLoop()
 
-	xlog.Info("zmatrix mgr is running")
+	xlog.Info("zMatrix mgr is running")
 
 	return nil
 }
