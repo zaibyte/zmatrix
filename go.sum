@@ -332,8 +332,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.6.1 h1:hDPOHmpOpP40lSULcqw7IrRb/u7w6RpDC9399XyoNd0=
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
-github.com/templexxx/bsegtree v0.0.2 h1:EBo1ztZ3o8KTRvruVU070On+8iiCwkIR+dvZ5CEJ5z0=
-github.com/templexxx/bsegtree v0.0.2/go.mod h1:pI5MAxBUkoXOmJ4eCaCZSHy1neSKv8EeBtrZqk32goA=
+github.com/templexxx/bsegtree v0.0.3 h1:swPDBdxG2D+rxv14nUeHtjU96NDafjeawevQfgnvjTI=
+github.com/templexxx/bsegtree v0.0.3/go.mod h1:pI5MAxBUkoXOmJ4eCaCZSHy1neSKv8EeBtrZqk32goA=
 github.com/templexxx/cpu v0.0.1/go.mod h1:w7Tb+7qgcAlIyX4NhLuDKt78AHA5SzPmq0Wj6HiEnnk=
 github.com/templexxx/cpu v0.0.8-0.20200904080713-862a179c181c/go.mod h1:w7Tb+7qgcAlIyX4NhLuDKt78AHA5SzPmq0Wj6HiEnnk=
 github.com/templexxx/cpu v0.0.8-0.20210423085042-1c810926b5dd h1:e3LrM9XQgWyZXJyNzAk5DCOm4ZBEFfMA0H053P4UNSc=

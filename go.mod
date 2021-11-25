@@ -9,10 +9,11 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/cockroachdb/pebble v0.0.0-20210406181039-e3809b89b488
 	github.com/elastic/go-hdrhistogram v0.1.0
+	github.com/openacid/low v0.1.14
 	github.com/openacid/slim v0.5.11
 	github.com/spf13/cast v1.3.1
 	github.com/stretchr/testify v1.6.1
-	github.com/templexxx/bsegtree v0.0.2
+	github.com/templexxx/bsegtree v0.0.3
 	github.com/templexxx/tsc v1.1.1
 	github.com/templexxx/xorsimd v0.4.1
 )
@@ -43,7 +44,6 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lni/goutils v1.3.0 // indirect
 	github.com/openacid/errors v0.8.1 // indirect
-	github.com/openacid/low v0.1.14 // indirect
 	github.com/openacid/must v0.1.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
