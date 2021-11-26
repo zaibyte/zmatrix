@@ -19,6 +19,14 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 /* Start of preamble from import "C" comments.  */
 
 
+#line 3 "zmc.go"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+#line 1 "cgo-generated-wrapper"
 
 
 /* End of preamble from import "C" comments.  */
@@ -68,13 +76,13 @@ typedef struct { void *data; GoInt len; GoInt cap; } GoSlice;
 extern "C" {
 #endif
 
-extern int init_client(char* addr);
-extern void stop();
-extern int set(unsigned int db, char* key, char* value, unsigned int kSize, unsigned int vSize);
-extern int get(unsigned int db, char* key, unsigned int kSize, char* value, unsigned int* vSize);
-extern int setBatch(unsigned int db, GoSlice keys, GoSlice values, GoSlice keySizes, GoSlice valueSizes);
-extern int remove(unsigned int db);
-extern int seal(unsigned int db);
+extern int zmc_init_client(char* addr);
+extern void zmc_stop();
+extern int zmc_set(unsigned int db, char* key, char* value, unsigned int kSize, unsigned int vSize);
+extern int zmc_get(unsigned int db, char* key, unsigned int kSize, char* value, unsigned int* vSize);
+extern int zmc_setBatch(unsigned int db, GoSlice keys, GoSlice values, GoSlice keySizes, GoSlice valueSizes);
+extern int zmc_remove_db(unsigned int db);
+extern int zmc_seal_db(unsigned int db);
 
 #ifdef __cplusplus
 }

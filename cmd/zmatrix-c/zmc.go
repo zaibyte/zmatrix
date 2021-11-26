@@ -1,5 +1,11 @@
 package main
 
+/*
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+*/
 import "C"
 
 import (
@@ -10,20 +16,22 @@ import (
 	"g.tesamc.com/IT/zaipkg/orpc"
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
 	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
+
+	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
 )
 
 var client xrpc.Client
 
-//export init_client
-func init_client(addr *C.char) C.int {
+//export zmc_init_client
+func zmc_init_client(addr *C.char) C.int {
 	client = urpc.NewClient(C.GoString(addr))
 	err := client.Start()
 	errno := orpc.ErrToErrno(err)
 	return C.int(errno)
 }
 
-//export stop
-func stop() {
+//export zmc_stop
+func zmc_stop() {
 	client.Stop(nil)
 }
 
@@ -32,8 +40,8 @@ func stop() {
 //
 // If meet ErrTooManyRequests, it'll keep retry every 3 seconds until ok or other error happens.
 
-//export set
-func set(db C.uint, key, value *C.char, kSize, vSize C.uint) C.int {
+//export zmc_set
+func zmc_set(db C.uint, key, value *C.char, kSize, vSize C.uint) C.int {
 
 	k := charToBytes(key, int(kSize))
 	v := charToBytes(value, int(vSize))
@@ -61,8 +69,8 @@ func set(db C.uint, key, value *C.char, kSize, vSize C.uint) C.int {
 // value is bytes buffer passed by invoker,
 // get will return val size by update vSize pointer.
 
-//export get
-func get(db C.uint, key *C.char, kSize C.uint, value *C.char, vSize *C.uint) (errno C.int) {
+//export zmc_get
+func zmc_get(db C.uint, key *C.char, kSize C.uint, value *C.char, vSize *C.uint) (errno C.int) {
 
 	k := charToBytes(key, int(kSize))
 
@@ -72,16 +80,15 @@ func get(db C.uint, key *C.char, kSize C.uint, value *C.char, vSize *C.uint) (er
 	}
 	defer closer.Close()
 
-	v := charToBytes(value, len(val))
-	copy(v, val)
+	C.strcpy((*C.char)(unsafe.Pointer(value)), (*C.char)(unsafe.Pointer(&val[0])))
 
 	*vSize = C.uint(len(val))
 
 	return 0
 }
 
-//export setBatch
-func setBatch(db C.uint, keys, values []*C.char, keySizes, valueSizes []C.int) C.int {
+//export zmc_setBatch
+func zmc_setBatch(db C.uint, keys, values []*C.char, keySizes, valueSizes []C.int) C.int {
 
 	if len(keys) != len(values) {
 		return C.int(orpc.ErrToErrno(orpc.ErrBadRequest))
@@ -122,16 +129,16 @@ func setBatch(db C.uint, keys, values []*C.char, keySizes, valueSizes []C.int) C
 
 // remove removes database entirely.
 
-//export remove
-func remove(db C.uint) C.int {
+//export zmc_remove_db
+func zmc_remove_db(db C.uint) C.int {
 
 	return C.int(uint16(orpc.ErrToErrno(client.Remove(uint32(db)))))
 }
 
 // seal seals database.
 
-//export seal
-func seal(db C.uint) C.int {
+//export zmc_seal_db
+func zmc_seal_db(db C.uint) C.int {
 
 	return C.int(uint16(orpc.ErrToErrno(client.Seal(uint32(db)))))
 }

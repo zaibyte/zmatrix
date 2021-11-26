@@ -98,6 +98,36 @@ percentiles (nsec):
 | 99.00th=[814079], 99.50th=[899071], 99.90th=[1106943], 99.95th=[1316863],
 | 99.99th=[3071999]
 ```
+For ~100 millions items (8B key, 187B value), 1 threads random read through UDS:
+
+```shell
+xxx@tes_of03:~$ ./zmp -c zmp.toml
+2021/11/26 11:50:14 start to prepare read
+2021/11/26 11:50:14 prepare with: 114836108 items
+2021/11/26 11:50:14 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
+config
+-------------
+&zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"rpc", jobType:1, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:1, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"/home/xxx/zmatrix.uds", PrintLog:false, PrepareDone:true, IgnoreError:false}
+-------------
+summary
+-------------
+job time: 200000.07281ms
+get: 20480MB
+-------------
+get ok: 1262636, failed: 0
+iops
+get avg: 6.31k/s
+-------------
+latency
+-------------
+get min: 75072, avg: 157897.63, max: 3665919
+percentiles (nsec):
+|  1.00th=[106367],  5.00th=[113791], 10.00th=[120831], 20.00th=[128703],
+| 30.00th=[136447], 40.00th=[148991], 50.00th=[158591], 60.00th=[163967],
+| 70.00th=[169855], 80.00th=[177407], 90.00th=[195071], 95.00th=[218879],
+| 99.00th=[258047], 99.50th=[278015], 99.90th=[322559], 99.95th=[346879],
+| 99.99th=[520959]
+```
 
 For ~100 millions items (8B key, 187B value), 128 threads random read through UDS:
 
@@ -148,15 +178,57 @@ will be placed on a certain disk driver.
 
 That's all! zMatrix is surprisingly simple for beginners!
 
+### Build
+
+1. Go env
+2. Download `g.tesamc.com/IT/keeper g.tesamc.com/IT/zaipkg g.tesamc.com/IT/zproto` on the same directoy with zmatrix
+3. run `make`
+
 ### Best Practice
 
 1. Using only one database unless got database full error.
 2. zMatrix is only built for random access, it won't provide list operation for users. It's a good idea to make keys regular. e.g., <prefix_a>_<timestamp>. 8 Bytes key is perfect.
 3. Sort keys in asc before setting to zMatrix. We could use regular keys and control the setting order to achieve this.
 
+### Go
+
+In Go, you could choose embed or RPC model. See [zmperf](tools/zmperf) as example.
+
+### Other Languages
+
+I've implemented a binding lib for zMatrix's client by [a static lib](binding/zmc.so).
+
+Any language which supports binding C could use it.
+
+Or you could choose to develop a client which satisfies the RPC protocol.
+
+#### Python
+
+See [example](examples/client.py) for details.
+
+```shell
+xxx@tes_of03:~$ python3 client.py
+value_size = 5
+get key: hello, got value: b'world'
+```
+
 ### Operation Guide
 
 ### Layout on local file system
+
+disk must be mounted on `disk_<disk_id>`
+
+You could get disk_id by:
+
+e.g.,
+
+```shell
+sudo blkid /dev/nvme1n1
+
+/dev/nvme1n1: UUID="b173907c-6b96-4b59-bd20-146e586d10cb" TYPE="xfs"
+```
+
+And the UUID is the disk_id.
 
 #### Disks
 
