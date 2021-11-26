@@ -190,6 +190,10 @@ That's all! zMatrix is surprisingly simple for beginners!
 2. zMatrix is only built for random access, it won't provide list operation for users. It's a good idea to make keys regular. e.g., <prefix_a>_<timestamp>. 8 Bytes key is perfect.
 3. Sort keys in asc before setting to zMatrix. We could use regular keys and control the setting order to achieve this.
 
+### Run Deamon
+
+```zmatrix -c config.toml```
+
 ### Go
 
 In Go, you could choose embed or RPC model. See [zmperf](tools/zmperf) as example.
