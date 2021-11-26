@@ -64,7 +64,6 @@ require (
 // TODO GitLAB proxy issues
 replace (
 	g.tesamc.com/IT/keeper v0.0.0 => ../keeper
-	g.tesamc.com/IT/zai v0.0.0 => ../zai
 	g.tesamc.com/IT/zaipkg v0.0.0 => ../zaipkg
 	g.tesamc.com/IT/zproto v0.0.0 => ../zproto
 )
