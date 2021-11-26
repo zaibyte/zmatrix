@@ -5,7 +5,7 @@ ifeq ($(GO115), 1)
     $(error "go below 1.15 does not support")
 endif
 
-ZAI_PKG := g.tesamc.com/IT/zmatrix
+ZAI_PKG := g.tesamc.com/IT/zaipkg
 
 LDFLAGS += -X "$(ZAI_PKG)/version.ReleaseVersion=$(shell git describe --tags --dirty)"
 LDFLAGS += -X "$(ZAI_PKG)/version.GitHash=$(shell git rev-parse HEAD)"
@@ -19,6 +19,7 @@ all: tidy test build
 build:
 	go build -ldflags '$(LDFLAGS)' -o bin/zmatrix cmd/zmatrix-server/main.go
 	go build -o bin/zmperf tools/zmperf/main.go
+	go build -buildmode=c-shared -o binding/zmc.so cmd/zmatrix-c/zmc.go
 
 test:
 	go test -race -cover $(TEST_PKGS)
@@ -26,7 +27,6 @@ test:
 tidy:
 	@echo "go mod tidy"
 	go mod tidy
-	git diff --quiet
 
 clean:
 	rm -rf ./bin/*
