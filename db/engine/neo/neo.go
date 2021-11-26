@@ -297,7 +297,14 @@ func (d *Database) Get(key []byte) ([]byte, io.Closer, error) {
 	// 1. If key is still in lv0, found. There won't be many keys in lv0, so the performance is acceptable.
 	// 2. If key is not found, must be lv1 if existed.
 
-	if d.lv0 != nil {
+	emptyLv0 := false
+	if d.GetState() == zmatrixpb.DBState_DB_Sealed {
+		if atomic.LoadUint64(&d.lv0DirtyCnt) == 0 {
+			emptyLv0 = true
+		}
+	}
+
+	if d.lv0 != nil && !emptyLv0 {
 
 		v, closer, err := d.lv0.get(key)
 		if err != nil {
