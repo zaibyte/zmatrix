@@ -37,127 +37,127 @@ For 8 bytes length key, each kv will only take 4.55bits as location index (key t
 
 Hundreds of thousands of IOPS for random read with low latency.
 
-For ~100 millions items (8B key, 187B value), 64 threads random read:
+For ~100 millions items (8B key, 187B value), 1 threads random read:
 
 ```shell
 xxx@tes_of03:~$ ./zmp -c zmp.toml
-2021/11/24 18:45:20 start to prepare read
-2021/11/24 18:45:20 prepare with: 114836108 items
-2021/11/24 18:45:20 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
+2021/12/01 13:06:10 start to prepare read
+2021/12/01 13:06:10 prepare with: 114836108 items
+2021/12/01 13:06:10 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
 config
 -------------
-&zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"embed", jobType:2, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:64, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"", PrintLog:false, PrepareDone:true, IgnoreError:false}
+&zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"embed", jobType:2, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:1, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"/home/xxx/zmatrix.uds", PrintLog:false, PrepareDone:true, IgnoreError:false}
 -------------
 summary
 -------------
-job time: 200000.29654ms
-get: 1310720MB
+job time: 200000.10966ms
+get: 20480MB
 -------------
-get ok: 51885660, failed: 0
+get ok: 1972560, failed: 0
 iops
-get avg: 259.43k/s
+get avg: 9.86k/s
 -------------
 latency
 -------------
-get min: 59648, avg: 246169.49, max: 7118847
+get min: 52416, avg: 101174.33, max: 4155391
 percentiles (nsec):
-|  1.00th=[120063],  5.00th=[150143], 10.00th=[167423], 20.00th=[189055],
-| 30.00th=[205567], 40.00th=[220543], 50.00th=[235135], 60.00th=[250879],
-| 70.00th=[269055], 80.00th=[292863], 90.00th=[332031], 95.00th=[375039],
-| 99.00th=[502271], 99.50th=[555519], 99.90th=[697343], 99.95th=[797183],
-| 99.99th=[2775039]
+|  1.00th=[58751],  5.00th=[60479], 10.00th=[69119], 20.00th=[76351],
+| 30.00th=[78143], 40.00th=[95103], 50.00th=[107647], 60.00th=[108671],
+| 70.00th=[109759], 80.00th=[112703], 90.00th=[130751], 95.00th=[161279],
+| 99.00th=[189951], 99.50th=[214399], 99.90th=[256511], 99.95th=[281599],
+| 99.99th=[439551]
 ```
 
 For ~100 millions items (8B key, 187B value), 128 threads random read:
 
 ```shell
 xxx@tes_of03:~$ ./zmp -c zmp.toml
-2021/11/25 11:08:03 start to prepare read
-2021/11/25 11:08:03 prepare with: 114836108 items
-2021/11/25 11:08:03 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
+2021/12/01 12:04:21 start to prepare read
+2021/12/01 12:04:21 prepare with: 114836108 items
+2021/12/01 12:04:21 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
 config
 -------------
-&zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"embed", jobType:2, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:128, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"", PrintLog:false, PrepareDone:true, IgnoreError:false}
+&zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"embed", jobType:2, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:128, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"/home/xxx/zmatrix.uds", PrintLog:false, PrepareDone:true, IgnoreError:false}
 -------------
 summary
 -------------
-job time: 200002.73022ms
+job time: 200000.40487ms
 get: 2621440MB
 -------------
-get ok: 64482769, failed: 0
+get ok: 67277058, failed: 0
 iops
-get avg: 322.41k/s
+get avg: 336.38k/s
 -------------
 latency
 -------------
-get min: 67968, avg: 396576.94, max: 10657791
+get min: 59456, avg: 373780.78, max: 13484031
 percentiles (nsec):
-|  1.00th=[183551],  5.00th=[236927], 10.00th=[266495], 20.00th=[303615],
-| 30.00th=[331519], 40.00th=[356351], 50.00th=[380671], 60.00th=[406527],
-| 70.00th=[435967], 80.00th=[473599], 90.00th=[535551], 95.00th=[603647],
-| 99.00th=[814079], 99.50th=[899071], 99.90th=[1106943], 99.95th=[1316863],
-| 99.99th=[3071999]
+|  1.00th=[130111],  5.00th=[167295], 10.00th=[194687], 20.00th=[236159],
+| 30.00th=[270591], 40.00th=[303359], 50.00th=[336895], 60.00th=[374783],
+| 70.00th=[421375], 80.00th=[484607], 90.00th=[591359], 95.00th=[700415],
+| 99.00th=[969727], 99.50th=[1106943], 99.90th=[1618943], 99.95th=[2029567],
+| 99.99th=[3424255]
 ```
 For ~100 millions items (8B key, 187B value), 1 threads random read through UDS:
 
 ```shell
 xxx@tes_of03:~$ ./zmp -c zmp.toml
-2021/11/26 11:50:14 start to prepare read
-2021/11/26 11:50:14 prepare with: 114836108 items
-2021/11/26 11:50:14 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
+2021/12/01 13:43:01 start to prepare read
+2021/12/01 13:43:01 prepare with: 114836108 items
+2021/12/01 13:43:01 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
 config
 -------------
 &zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"rpc", jobType:1, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:1, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"/home/xxx/zmatrix.uds", PrintLog:false, PrepareDone:true, IgnoreError:false}
 -------------
 summary
 -------------
-job time: 200000.07281ms
+job time: 200000.04186ms
 get: 20480MB
 -------------
-get ok: 1262636, failed: 0
+get ok: 1234937, failed: 0
 iops
-get avg: 6.31k/s
+get avg: 6.17k/s
 -------------
 latency
 -------------
-get min: 75072, avg: 157897.63, max: 3665919
+get min: 88192, avg: 161461.58, max: 4452351
 percentiles (nsec):
-|  1.00th=[106367],  5.00th=[113791], 10.00th=[120831], 20.00th=[128703],
-| 30.00th=[136447], 40.00th=[148991], 50.00th=[158591], 60.00th=[163967],
-| 70.00th=[169855], 80.00th=[177407], 90.00th=[195071], 95.00th=[218879],
-| 99.00th=[258047], 99.50th=[278015], 99.90th=[322559], 99.95th=[346879],
-| 99.99th=[520959]
+|  1.00th=[108799],  5.00th=[118143], 10.00th=[124927], 20.00th=[132863],
+| 30.00th=[141567], 40.00th=[155263], 50.00th=[161407], 60.00th=[166527],
+| 70.00th=[172031], 80.00th=[179455], 90.00th=[197759], 95.00th=[222847],
+| 99.00th=[260735], 99.50th=[280319], 99.90th=[326399], 99.95th=[349183],
+| 99.99th=[486911]
 ```
 
 For ~100 millions items (8B key, 187B value), 128 threads random read through UDS:
 
 ```shell
 xxx@tes_of03:~$ ./zmp -c zmp.toml
-2021/11/25 13:42:47 start to prepare read
-2021/11/25 13:42:47 prepare with: 114836108 items
-2021/11/25 13:42:47 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
+2021/12/01 13:52:59 start to prepare read
+2021/12/01 13:52:59 prepare with: 114836108 items
+2021/12/01 13:52:59 prepare read done with batch set (512KB each batch), cost: 0.00s (cnt_too_many_req: 0, sleep_for_too_many_req: 0s) for 114836108 items (8B key + 187B value), QPS: +Inf
 config
 -------------
 &zmperf.Config{DataRoot:"/home/xxx/zmatrix", ValSize:0xbb, JobType:"rpc", jobType:1, JobTime:200000000000, SkipTime:10000000000, MBPerGetThread:20480, GetThreads:128, IOThreads:128, NopSched:false, IsDoNothing:false, ServerAddr:"/home/xxx/zmatrix.uds", PrintLog:false, PrepareDone:true, IgnoreError:false}
 -------------
 summary
 -------------
-job time: 200000.57037ms
+job time: 200000.46817ms
 get: 2621440MB
 -------------
-get ok: 54627945, failed: 0
+get ok: 54856739, failed: 0
 iops
-get avg: 273.14k/s
+get avg: 274.28k/s
 -------------
 latency
 -------------
-get min: 74944, avg: 468648.68, max: 10174463
+get min: 80064, avg: 459232.58, max: 19939327
 percentiles (nsec):
-|  1.00th=[127487],  5.00th=[157567], 10.00th=[181247], 20.00th=[229759],
-| 30.00th=[292351], 40.00th=[357119], 50.00th=[422655], 60.00th=[491007],
-| 70.00th=[567295], 80.00th=[662527], 90.00th=[808447], 95.00th=[946687],
-| 99.00th=[1301503], 99.50th=[1505279], 99.90th=[2177023], 99.95th=[2535423],
-| 99.99th=[3483647]
+|  1.00th=[139391],  5.00th=[171391], 10.00th=[195071], 20.00th=[243199],
+| 30.00th=[301055], 40.00th=[360447], 50.00th=[420607], 60.00th=[483839],
+| 70.00th=[553983], 80.00th=[640511], 90.00th=[770559], 95.00th=[888831],
+| 99.00th=[1156095], 99.50th=[1285119], 99.90th=[1812479], 99.95th=[2310143],
+| 99.99th=[3713023]
 ```
 
 ### P.S.
