@@ -16,6 +16,7 @@ require (
 	github.com/zaibyte/keeper v0.0.1
 	github.com/zaibyte/zaipkg v0.0.1
 	github.com/zaibyte/zproto v0.0.2
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -56,7 +57,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20201210212021-a20c86df00b4 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9 // indirect
 )
