@@ -3,7 +3,7 @@ package xrpc
 import (
 	"io"
 
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 // Client is the xRPC client.

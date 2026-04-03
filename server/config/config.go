@@ -1,8 +1,8 @@
 package config
 
 import (
-	"g.tesamc.com/IT/zaipkg/app"
-	"g.tesamc.com/IT/zmatrix/mgr"
+	"github.com/zaibyte/zaipkg/app"
+	"github.com/zaibyte/zmatrix/mgr"
 )
 
 // Config is the ZMatrix server configuration.

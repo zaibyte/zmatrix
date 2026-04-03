@@ -10,19 +10,19 @@ import (
 	"time"
 	"unsafe"
 
-	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
+	config2 "github.com/zaibyte/zmatrix/pkg/config"
 
-	"g.tesamc.com/IT/keeper/pkg/diskpicker/filter"
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/vdisk"
-	sdisk "g.tesamc.com/IT/zaipkg/vdisk/svr"
-	"g.tesamc.com/IT/zaipkg/vfs"
-	"g.tesamc.com/IT/zaipkg/xerrors"
-	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zmatrix/db"
-	"g.tesamc.com/IT/zmatrix/db/engine/neo"
-	"g.tesamc.com/IT/zproto/pkg/metapb"
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/keeper/pkg/diskpicker/filter"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/vdisk"
+	sdisk "github.com/zaibyte/zaipkg/vdisk/svr"
+	"github.com/zaibyte/zaipkg/vfs"
+	"github.com/zaibyte/zaipkg/xerrors"
+	"github.com/zaibyte/zaipkg/xlog"
+	"github.com/zaibyte/zmatrix/db"
+	"github.com/zaibyte/zmatrix/db/engine/neo"
+	"github.com/zaibyte/zproto/pkg/metapb"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 type Mgr struct {

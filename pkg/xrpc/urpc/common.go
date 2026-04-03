@@ -43,7 +43,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"g.tesamc.com/IT/zaipkg/xbytes"
+	"github.com/zaibyte/zaipkg/xbytes"
 )
 
 const (

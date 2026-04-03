@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/xtest"
+	"github.com/zaibyte/zaipkg/xtest"
 
 	"github.com/elastic/go-hdrhistogram"
 	"github.com/templexxx/tsc"
@@ -195,7 +195,7 @@ func TestClient_Set_Latency_Single(t *testing.T) {
 }
 
 // Multi threads request.
-// Result: https://g.tesamc.com/IT/zmatrix/issues/2#issuecomment-1589
+// Result: https://github.com/zaibyte/zmatrix/issues/2#issuecomment-1589
 func TestClient_Set_Latency_Concurrency(t *testing.T) {
 
 	if !xtest.IsPropEnabled() {

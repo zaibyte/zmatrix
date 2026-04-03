@@ -12,7 +12,7 @@ It's one of the best local stores as a cache layer in Machine Learning Computing
 4. Except user-facing disk I/O operations, nothing is working on block mode (e.g., log)
 5. Could be embedded into user applications or using Unix Domain Socket.
 6. Supports multi namespaces/databases.
-7. Supports multi disks (I won't implement multi disks for one database in present, see this [issue](https://g.tesamc.com/IT/zmatrix/issues/4) for details).
+7. Supports multi disks (I won't implement multi disks for one database in present).
 
 Maybe is the best, not just one of the best.
 
@@ -28,7 +28,7 @@ zMatrix is using pure memory as index but only use incredible space, as [test](d
     lv1_test.go:39: 4194304 kv will take 4.55 bits for each key as index
 --- PASS: TestIdxMemoryUsage (1.08s)
 PASS
-ok      g.tesamc.com/IT/zmatrix/db/engine/neo   3.534s
+ok      github.com/zaibyte/zmatrix/db/engine/neo   3.534s
 ```
 
 For 8 bytes length key, each kv will only take 4.55bits as location index (key to disk position).
@@ -180,9 +180,7 @@ That's all! zMatrix is surprisingly simple for beginners!
 
 ### Build
 
-1. Go env
-2. Download `g.tesamc.com/IT/keeper g.tesamc.com/IT/zaipkg g.tesamc.com/IT/zproto` on the same directoy with zmatrix
-3. run `make`
+run `make`
 
 ### Best Practice
 

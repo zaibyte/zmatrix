@@ -1,8 +1,8 @@
 package neo
 
 import (
-	"g.tesamc.com/IT/zaipkg/config"
-	"g.tesamc.com/IT/zaipkg/typeutil"
+	"github.com/zaibyte/zaipkg/config"
+	"github.com/zaibyte/zaipkg/typeutil"
 )
 
 // Trigger for transferring entries to lv1 from lv0.

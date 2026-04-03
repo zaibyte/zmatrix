@@ -7,18 +7,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/uid"
+	"github.com/zaibyte/zaipkg/uid"
 
-	"g.tesamc.com/IT/zaipkg/app"
-	"g.tesamc.com/IT/zmatrix/mgr"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
-	"g.tesamc.com/IT/zmatrix/server"
-	"g.tesamc.com/IT/zmatrix/server/config"
+	"github.com/zaibyte/zaipkg/app"
+	"github.com/zaibyte/zmatrix/mgr"
+	"github.com/zaibyte/zmatrix/pkg/xrpc/urpc"
+	"github.com/zaibyte/zmatrix/server"
+	"github.com/zaibyte/zmatrix/server/config"
 
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
 
-	"g.tesamc.com/IT/zaipkg/xio/sched"
 	"github.com/elastic/go-hdrhistogram"
+	"github.com/zaibyte/zaipkg/xio/sched"
 
 	"github.com/templexxx/tsc"
 )

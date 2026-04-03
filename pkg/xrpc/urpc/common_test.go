@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
+	"github.com/zaibyte/zaipkg/xmath/xrand"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/templexxx/tsc"

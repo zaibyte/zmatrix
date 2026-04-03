@@ -6,14 +6,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xlog"
 
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
+	"github.com/zaibyte/zaipkg/xmath/xrand"
 
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
-
-	"g.tesamc.com/IT/zaipkg/xtest"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
 
 	"github.com/templexxx/tsc"
 )
@@ -45,7 +43,7 @@ func (j *jober) get(key []byte) (bool, int64) {
 
 	if j.isDoNothing {
 		start := tsc.UnixNano()
-		xtest.DoNothing(10)
+		doNothing(10)
 		cost := tsc.UnixNano() - start
 		return true, cost
 	}
@@ -63,6 +61,11 @@ func (j *jober) get(key []byte) (bool, int64) {
 	}
 	defer closer.Close()
 	return true, cost
+}
+
+func doNothing(n int) {
+	for i := 0; i < n; i++ {
+	}
 }
 
 func (r *Runner) runGetJob(wg *sync.WaitGroup) {

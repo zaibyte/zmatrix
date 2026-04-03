@@ -9,17 +9,17 @@ import (
 
 	"github.com/cockroachdb/pebble"
 
-	"g.tesamc.com/IT/zmatrix/pkg/zmerrors"
+	"github.com/zaibyte/zmatrix/pkg/zmerrors"
 
-	"g.tesamc.com/IT/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/xlog"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xerrors"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xerrors"
 
-	"g.tesamc.com/IT/zaipkg/vfs"
-	"g.tesamc.com/IT/zaipkg/xio"
-	"g.tesamc.com/IT/zmatrix/db"
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/zaipkg/vfs"
+	"github.com/zaibyte/zaipkg/xio"
+	"github.com/zaibyte/zmatrix/db"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 // Neo Layout on local filesystem:

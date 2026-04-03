@@ -49,18 +49,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 
-	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
+	config2 "github.com/zaibyte/zmatrix/pkg/config"
 
-	"g.tesamc.com/IT/zaipkg/config"
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xbytes"
-	"g.tesamc.com/IT/zaipkg/xerrors"
-	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zaipkg/xmath"
-	"g.tesamc.com/IT/zaipkg/xtime"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
+	"github.com/zaibyte/zaipkg/config"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xbytes"
+	"github.com/zaibyte/zaipkg/xerrors"
+	"github.com/zaibyte/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/xmath"
+	"github.com/zaibyte/zaipkg/xtime"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
 )
 
 // Client implements xrpc.Client.
@@ -142,7 +142,7 @@ func (c *Client) Start() error {
 	config.Adjust(&c.RecvBufferSize, DefaultClientRecvBufferSize)
 	config.Adjust(&c.SendBufferSize, DefaultClientSendBufferSize)
 
-	c.PendingRequests = xmath.NextPower2(c.PendingRequests)
+	c.PendingRequests = xmath.NextPow2(c.PendingRequests)
 
 	// Start write index at the value before 0
 	// to allow the first conn to use AddUint64

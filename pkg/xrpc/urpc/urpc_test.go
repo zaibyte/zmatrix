@@ -53,15 +53,15 @@ import (
 	"sync"
 	"testing"
 
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 
 	"github.com/stretchr/testify/assert"
 
-	"g.tesamc.com/IT/zaipkg/directio"
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xbytes"
-	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
+	"github.com/zaibyte/zaipkg/directio"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xbytes"
+	_ "github.com/zaibyte/zaipkg/xlog/xlogtest"
+	"github.com/zaibyte/zaipkg/xmath/xrand"
 
 	"github.com/templexxx/tsc"
 )

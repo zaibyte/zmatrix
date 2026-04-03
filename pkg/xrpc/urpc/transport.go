@@ -42,7 +42,7 @@ package urpc
 import (
 	"net"
 
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
 )
 
 // NewClient creates a client connecting UNIX

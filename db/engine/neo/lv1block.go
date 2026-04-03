@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"g.tesamc.com/IT/zaipkg/xmath"
-	"g.tesamc.com/IT/zmatrix/pkg/config"
+	"github.com/zaibyte/zaipkg/xmath"
+	"github.com/zaibyte/zmatrix/pkg/config"
 )
 
 const (

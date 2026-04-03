@@ -14,18 +14,18 @@ import (
 	"testing"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/xtest"
+	"github.com/zaibyte/zaipkg/xtest"
 
 	"github.com/openacid/low/size"
 
-	"g.tesamc.com/IT/zaipkg/directio"
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xio"
-	"g.tesamc.com/IT/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/directio"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xio"
+	"github.com/zaibyte/zaipkg/xlog"
 
-	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
-	"g.tesamc.com/IT/zmatrix/pkg/config"
+	_ "github.com/zaibyte/zaipkg/xlog/xlogtest"
+	"github.com/zaibyte/zaipkg/xmath/xrand"
+	"github.com/zaibyte/zmatrix/pkg/config"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/openacid/slim/index"

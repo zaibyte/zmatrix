@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/orpc"
 
 	"github.com/templexxx/tsc"
 )

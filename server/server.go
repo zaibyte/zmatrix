@@ -5,13 +5,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zaipkg/vdisk"
-	"g.tesamc.com/IT/zaipkg/vfs"
-	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zmatrix/mgr"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
-	"g.tesamc.com/IT/zmatrix/server/config"
+	"github.com/zaibyte/zaipkg/vdisk"
+	"github.com/zaibyte/zaipkg/vfs"
+	"github.com/zaibyte/zaipkg/xlog"
+	"github.com/zaibyte/zmatrix/mgr"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
+	"github.com/zaibyte/zmatrix/pkg/xrpc/urpc"
+	"github.com/zaibyte/zmatrix/server/config"
 )
 
 // Server is the zMatrix server.

@@ -49,11 +49,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xbytes"
-	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zaipkg/xtime"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xbytes"
+	"github.com/zaibyte/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/xtime"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
 )
 
 // Server implements xrpc.Server.

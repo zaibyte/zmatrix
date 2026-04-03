@@ -4,10 +4,10 @@ import (
 	"io"
 	"path/filepath"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/orpc"
 
-	"g.tesamc.com/IT/zaipkg/vfs"
-	"g.tesamc.com/IT/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/vfs"
+	"github.com/zaibyte/zaipkg/xlog"
 
 	"github.com/cockroachdb/pebble"
 )

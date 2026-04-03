@@ -5,9 +5,9 @@ import (
 	"strings"
 	"sync"
 
-	"g.tesamc.com/IT/zmatrix/db"
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
 	"github.com/spf13/cast"
+	"github.com/zaibyte/zmatrix/db"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 // IMgr manages all DB.

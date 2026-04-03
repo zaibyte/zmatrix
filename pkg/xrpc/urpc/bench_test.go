@@ -45,7 +45,7 @@ import (
 	"testing"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/xbytes"
+	"github.com/zaibyte/zaipkg/xbytes"
 )
 
 // TODO if you want to run bench, should raise the xbytes leaky pool capacities.

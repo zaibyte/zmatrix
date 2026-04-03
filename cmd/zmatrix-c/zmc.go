@@ -13,11 +13,11 @@ import (
 	"time"
 	"unsafe"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc"
-	"g.tesamc.com/IT/zmatrix/pkg/xrpc/urpc"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zmatrix/pkg/xrpc"
+	"github.com/zaibyte/zmatrix/pkg/xrpc/urpc"
 
-	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
+	_ "github.com/zaibyte/zaipkg/xlog/xlogtest"
 )
 
 var client xrpc.Client

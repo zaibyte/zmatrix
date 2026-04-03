@@ -1,8 +1,8 @@
 package zmperf
 
 import (
-	"g.tesamc.com/IT/zaipkg/config"
-	"g.tesamc.com/IT/zaipkg/typeutil"
+	"github.com/zaibyte/zaipkg/config"
+	"github.com/zaibyte/zaipkg/typeutil"
 )
 
 type Config struct {

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"g.tesamc.com/IT/zaipkg/vfs"
-	"g.tesamc.com/IT/zaipkg/xio"
-	_ "g.tesamc.com/IT/zaipkg/xlog/xlogtest"
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
-	"g.tesamc.com/IT/zmatrix/pkg/config"
+	"github.com/zaibyte/zaipkg/vfs"
+	"github.com/zaibyte/zaipkg/xio"
+	_ "github.com/zaibyte/zaipkg/xlog/xlogtest"
+	"github.com/zaibyte/zaipkg/xmath/xrand"
+	"github.com/zaibyte/zmatrix/pkg/config"
 
 	"github.com/stretchr/testify/assert"
 )

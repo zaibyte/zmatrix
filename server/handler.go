@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"io"
 
-	"g.tesamc.com/IT/zaipkg/xlog"
+	"github.com/zaibyte/zaipkg/xlog"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xerrors"
-	config2 "g.tesamc.com/IT/zmatrix/pkg/config"
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xerrors"
+	config2 "github.com/zaibyte/zmatrix/pkg/config"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 func (s *Server) Set(db uint32, key, value []byte) (err error) {

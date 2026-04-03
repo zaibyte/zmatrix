@@ -5,13 +5,15 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"g.tesamc.com/IT/zaipkg/directio"
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/vfs"
-	"g.tesamc.com/IT/zaipkg/xdigest"
-	"g.tesamc.com/IT/zaipkg/xerrors"
-	"g.tesamc.com/IT/zaipkg/xlog"
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/zaibyte/zaipkg/directio"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/vfs"
+	"github.com/zaibyte/zaipkg/xdigest"
+	"github.com/zaibyte/zaipkg/xerrors"
+	"github.com/zaibyte/zaipkg/xlog"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 // db boot sector is built for starting database correctly:
@@ -71,10 +73,11 @@ func CreateDBBoot(fs vfs.FS, dbBootPath string, dbID uint32, engine zmatrixpb.DB
 // Ensure it has been protected by lock before using.
 func (b *Boot) Flush() error {
 
-	n, err := b.DB.MarshalTo(b.buf)
+	out, err := proto.MarshalOptions{}.MarshalAppend(b.buf[:0], b.DB)
 	if err != nil {
 		return err
 	}
+	n := len(out)
 	if n > BootSectorSize-6 {
 		xlog.Errorf("database boot sector is out of 4KB: %d", n)
 		return orpc.ErrInternalServer
@@ -137,7 +140,7 @@ func LoadBoot(fs vfs.FS, rootPath string) (b *Boot, err error) {
 		DB:  new(zmatrixpb.DBBoot),
 		buf: buf,
 	}
-	err = b.DB.Unmarshal(buf[:mn])
+	err = proto.Unmarshal(buf[:mn], b.DB)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,7 @@ package db
 import (
 	"io"
 
-	"g.tesamc.com/IT/zproto/pkg/zmatrixpb"
+	"github.com/zaibyte/zproto/pkg/zmatrixpb"
 )
 
 // DB provides a concurrent, persistent key/value store.

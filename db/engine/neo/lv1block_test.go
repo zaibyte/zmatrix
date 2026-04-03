@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"g.tesamc.com/IT/zaipkg/xtest"
+	"github.com/zaibyte/zaipkg/xtest"
 
 	"github.com/templexxx/tsc"
 

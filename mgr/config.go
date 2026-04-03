@@ -3,11 +3,11 @@ package mgr
 import (
 	"time"
 
-	"g.tesamc.com/IT/zmatrix/db/engine/neo"
+	"github.com/zaibyte/zmatrix/db/engine/neo"
 
-	"g.tesamc.com/IT/zaipkg/config"
-	"g.tesamc.com/IT/zaipkg/typeutil"
-	"g.tesamc.com/IT/zaipkg/xio/sched"
+	"github.com/zaibyte/zaipkg/config"
+	"github.com/zaibyte/zaipkg/typeutil"
+	"github.com/zaibyte/zaipkg/xio/sched"
 )
 
 // Config is Mgr's config.

@@ -3,8 +3,8 @@ package zmerrors
 import (
 	"errors"
 
-	"g.tesamc.com/IT/zaipkg/orpc"
-	"g.tesamc.com/IT/zaipkg/xerrors"
+	"github.com/zaibyte/zaipkg/orpc"
+	"github.com/zaibyte/zaipkg/xerrors"
 )
 
 var (

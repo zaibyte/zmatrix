@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"g.tesamc.com/IT/zaipkg/xmath/xrand"
+	"github.com/zaibyte/zaipkg/xmath/xrand"
 )
 
 func TestCreateStartLv0(t *testing.T) {
